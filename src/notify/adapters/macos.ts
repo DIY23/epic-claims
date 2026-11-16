@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { AppEvent, AppEventType } from '../../shared/events.js';
 import type { Config } from '../../config/schema.js';
 import type { AdapterContext, AdapterStatus, DeliveryResult, NotificationAdapter, RenderedNotification } from '../adapter.js';
@@ -79,6 +81,16 @@ export class MacOSNotificationAdapter implements NotificationAdapter {
     try {
       const running = await client.ensureRunning();
       if (!running) {
+        // The helper's own log is the only clue when a bundle refuses to start.
+        let hint = '';
+        try {
+          const logPath = path.join(path.dirname(client.socketPath), 'helper.log');
+          const tail = fs.readFileSync(logPath, 'utf8').trim().split('\n').slice(-3).join(' | ');
+          if (tail) hint = ` (helper log: ${tail.slice(0, 300)})`;
+        } catch {
+          /* no log yet */
+        }
+        ctx.logger.warn('notification helper did not start', { hint });
         const r = await osascriptNotification(title, subtitle, message.body, cfg.sound);
         return r.ok
           ? { ok: true, attempts: 1, detail: 'notification helper did not start; delivered via osascript without action buttons' }

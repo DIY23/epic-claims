@@ -192,23 +192,37 @@ export class NotifierClient {
     // <bundle> --args …` reported success but the process never picked the arguments
     // up, so no socket appeared. LaunchServices registration (done once at install)
     // is what makes a notification *click* able to relaunch the helper.
+    // Keep the helper's own output: when it refuses to start, its stderr is the
+    // only evidence (silent failures are the norm for LSUIElement apps).
+    let logFd: number | null = null;
+    try {
+      logFd = fs.openSync(path.join(path.dirname(this.paths.socket), 'helper.log'), 'a');
+    } catch {
+      logFd = null;
+    }
     try {
       const child = spawn(this.opts.location.executable, ['--socket', this.paths.socket, '--actions-log', this.paths.actionsLog], {
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'ignore'],
       });
       child.unref();
     } catch (e) {
+      if (logFd !== null) fs.closeSync(logFd);
       throw new AppError('NOTIFICATION_FAILED', `cannot start the notification helper: ${errorMessage(e)}`);
+    } finally {
+      if (logFd !== null) {
+        // The child holds its own descriptor; close ours.
+        try { fs.closeSync(logFd); } catch { /* ignore */ }
+      }
     }
-    const deadline = Date.now() + (this.opts.startupTimeoutMs ?? 5000);
+    const deadline = Date.now() + (this.opts.startupTimeoutMs ?? 15_000);
     while (Date.now() < deadline) {
       try {
         const socket = await this.connect();
         socket.destroy();
         return true;
       } catch {
-        await new Promise((r) => setTimeout(r, 150));
+        await new Promise((r) => setTimeout(r, 200));
       }
     }
     return false;
