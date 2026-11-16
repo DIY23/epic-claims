@@ -1,0 +1,16 @@
+node_modules/
+dist/
+release/
+build/
+web/dist/
+*.log
+.DS_Store
+.env
+.env.*
+coverage/
+.vitest/
+*.db
+*.db-wal
+*.db-shm
+*.tsbuildinfo
+tmp/

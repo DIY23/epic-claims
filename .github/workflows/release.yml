@@ -1,0 +1,50 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: version to publish (e.g. 1.0.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: build the release archive
+        env:
+          EPIC_CLAIMS_SIGNING_KEY: ${{ secrets.EPIC_CLAIMS_SIGNING_KEY }}
+        run: |
+          if [ -n "${EPIC_CLAIMS_SIGNING_KEY:-}" ]; then
+            bash scripts/package-release.sh --out release --sign
+          else
+            echo "no EPIC_CLAIMS_SIGNING_KEY secret set: publishing an unsigned (checksummed) release"
+            bash scripts/package-release.sh --out release
+          fi
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tag="v$version"
+          assets=(release/epic-claims-$version.tar.gz release/SHA256SUMS)
+          if [ -f release/SHA256SUMS.sig ]; then assets+=(release/SHA256SUMS.sig); fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            gh release create "$tag" "${assets[@]}" --title "Epic Claims $version" --notes "Epic Claims $version"
+          fi
+        shell: bash
