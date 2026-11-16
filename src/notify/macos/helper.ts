@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { AppError, errorMessage } from '../../shared/errors.js';
 
@@ -188,14 +188,18 @@ export class NotifierClient {
       /* not running yet */
     }
     fs.mkdirSync(path.dirname(this.paths.socket), { recursive: true, mode: 0o700 });
+    // Executing the binary inside the bundle is what actually works: `open -g -n -a
+    // <bundle> --args …` reported success but the process never picked the arguments
+    // up, so no socket appeared. LaunchServices registration (done once at install)
+    // is what makes a notification *click* able to relaunch the helper.
     try {
-      await execFileAsync(
-        '/usr/bin/open',
-        ['-g', '-n', '-a', this.opts.location.bundlePath, '--args', '--socket', this.paths.socket, '--actions-log', this.paths.actionsLog],
-        { timeout: 10_000 },
-      );
+      const child = spawn(this.opts.location.executable, ['--socket', this.paths.socket, '--actions-log', this.paths.actionsLog], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
     } catch (e) {
-      throw new AppError('NOTIFICATION_FAILED', `cannot launch the notification helper: ${errorMessage(e)}`);
+      throw new AppError('NOTIFICATION_FAILED', `cannot start the notification helper: ${errorMessage(e)}`);
     }
     const deadline = Date.now() + (this.opts.startupTimeoutMs ?? 5000);
     while (Date.now() < deadline) {

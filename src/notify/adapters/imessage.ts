@@ -112,8 +112,14 @@ export class IMessageNotificationAdapter implements NotificationAdapter {
     if (!enabled) {
       return { id: this.id, enabled, configured: false, detail: 'disabled in configuration', capabilities: { interactive: true, richText: false } };
     }
-    if (!cfg.recipient.trim()) {
-      return { id: this.id, enabled, configured: false, detail: 'no recipient configured', capabilities: { interactive: true, richText: false } };
+    if (!this.isConfigured(ctx.config)) {
+      const why =
+        cfg.transport === 'photon'
+          ? 'Photon gateway needs a spaceId (run: epic-claims notifications photon <spaceId>)'
+          : cfg.transport === 'bluebubbles'
+            ? 'BlueBubbles needs a baseUrl and a recipient'
+            : 'AppleScript transport needs a recipient handle';
+      return { id: this.id, enabled, configured: false, detail: why, capabilities: { interactive: true, richText: false } };
     }
     try {
       const ready = await this.transport(ctx.config).readiness();
