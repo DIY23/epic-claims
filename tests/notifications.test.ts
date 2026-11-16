@@ -238,7 +238,10 @@ describe('iMessage rendering', () => {
     const rendered = adapter.render(event, { body: '{game_name}' }, ctx);
     expect(rendered.body).toContain('CLAIM abcd1234');
     expect(rendered.body).toContain('SKIP abcd1234');
-    expect(rendered.body).toContain('/approve/tok');
+    // This channel may only carry public links: no loopback URL, even though the
+    // approval URL exists internally for the notification buttons.
+    expect(rendered.body).not.toContain('127.0.0.1');
+    expect(rendered.body).not.toContain('/approve/tok');
   });
 });
 

@@ -441,6 +441,7 @@ export function buildProgram(): Command {
           const report = await core.notifications.test(event, opts.adapter);
           if (json()) printJson(report);
           else out(report.status === 'delivered' ? c.green(`delivered via ${opts.adapter}`) : c.red(`failed via ${opts.adapter}: ${report.errorCode} ${report.errorMessage ?? ''}`));
+          if (report.status === 'delivered' && report.errorMessage) out(c.dim(report.errorMessage));
           if (report.status !== 'delivered') process.exit(EXIT_ERROR);
         });
       } catch (e) {

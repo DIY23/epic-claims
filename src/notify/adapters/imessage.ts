@@ -83,6 +83,16 @@ export class IMessageNotificationAdapter implements NotificationAdapter {
         body = `${body}\n${String(rendered.data.approvalUrl)}`;
       }
     }
+    // Hard rule for this channel: only public https links may appear. A local
+    // approval URL is useless on a phone and the gateway refuses/strips it, so
+    // any loopback, .local or private-network URL is removed from the body.
+    body = body
+      .replace(/https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?::\d+)?\S*/gi, '')
+      .replace(/https?:\/\/(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)[^\s]*/gi, '')
+      .replace(/https?:\/\/[^\s/]+\.local\S*/gi, '')
+      .replace(/[ \t]+$/gm, '')
+      .replace(/\n{3,}/g, '\n\n');
+
     if (body.length > max) body = `${body.slice(0, max - 1)}…`;
     rendered.body = body;
     rendered.subject = null;

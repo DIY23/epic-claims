@@ -102,9 +102,10 @@ export const DEFAULT_IMESSAGE_TEMPLATES: TemplateSet = {
     body: '⚠️ Claim failed: {game_name} ({error_code}). {error_message}',
   },
   APPROVAL_REQUIRED: {
-    body: '❓ Claim {game_name}? Free until {offer_expiry}.\nReply "CLAIM {approval_code}" to claim or "SKIP {approval_code}" to skip.\nOr open: {approval_url}\nExpires {approval_expiry}.',
-    approveLabel: 'CLAIM',
-    skipLabel: 'SKIP',
+    // iMessage may only carry Epic Store links, never a localhost/DDNS URL.
+    body: '❓ Claim {game_name}? Free until {offer_expiry}.\nAction: CLAIM {approval_code} · SKIP {approval_code}\nStore: {offer_url}',
+    approveLabel: 'Claim',
+    skipLabel: 'Skip',
   },
   APPROVAL_ACCEPTED: {
     body: '👍 Approved: {game_name}. Claiming now.',
