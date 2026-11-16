@@ -4,7 +4,7 @@ import type { Config } from '../config/schema.js';
 
 /** A fully rendered, platform-specific message. Adapters produce these themselves. */
 export interface RenderedNotification {
-  /** macOS: notification title. iMessage: unused (kept for logging). */
+  /** Adapter-specific heading (macOS: the notification title). */
   subject: string | null;
   subtitle: string | null;
   body: string;

@@ -44,12 +44,11 @@ let app: FastifyInstance;
 let token: string;
 let paths: ReturnType<typeof resolvePaths>;
 let macos: SilentAdapter;
-let imessage: SilentAdapter;
 
 async function build(t: 'main' | 'admin' = 'main'): Promise<FastifyInstance> {
   const configStore = box.configStore;
   const notifications = new NotificationManager({
-    adapters: [macos, imessage],
+    adapters: [macos],
     repos: box.repos,
     clock: box.clock,
     logger: box.logger,
@@ -107,7 +106,6 @@ beforeEach(async () => {
   box = makeSandbox();
   paths = resolvePaths({ home: box.dataDir, logs: box.logsDir });
   macos = new SilentAdapter('macos');
-  imessage = new SilentAdapter('imessage');
   app = await build();
 });
 
@@ -223,9 +221,7 @@ describe('config and notifications endpoints', () => {
     expect(res.statusCode).toBe(200);
     const config = box.configStore.load();
     expect(config.notifications.events.CLAIM_SUCCEEDED.macos.enabled).toBe(false);
-    expect(config.notifications.events.CLAIM_SUCCEEDED.imessage.enabled).toBe(false); // default was off
     expect(config.notifications.events.CLAIM_FAILED.macos.enabled).toBe(true);
-    expect(config.notifications.events.CLAIM_FAILED.imessage.enabled).toBe(true);
   });
 
   it('saves a per-platform template and rejects a bad one', async () => {
@@ -233,20 +229,20 @@ describe('config and notifications endpoints', () => {
       method: 'PUT',
       url: '/api/notifications/templates',
       headers: auth(),
-      payload: { adapter: 'imessage', event: 'GAME_DISCOVERED', template: { body: 'New: {game_name} until {offer_expiry}' } },
+      payload: { adapter: 'macos', event: 'GAME_DISCOVERED', template: { title: 'New {game_name}', body: 'Until {offer_expiry}' } },
     });
     expect(ok.statusCode).toBe(200);
-    expect(box.configStore.load().notifications.templates.imessage.GAME_DISCOVERED.body).toContain('New:');
+    expect(box.configStore.load().notifications.templates.macos.GAME_DISCOVERED.title).toContain('New');
 
     const bad = await app.inject({
       method: 'PUT',
       url: '/api/notifications/templates',
       headers: auth(),
-      payload: { adapter: 'imessage', event: 'GAME_DISCOVERED', template: { body: '{totally_unknown}' } },
+      payload: { adapter: 'macos', event: 'GAME_DISCOVERED', template: { body: '{totally_unknown}' } },
     });
     expect(bad.statusCode).toBe(400);
-    // the macOS template is untouched
-    expect(box.configStore.load().notifications.templates.macos.GAME_DISCOVERED.title).toContain('{store_name}');
+    // the rejected write did not replace the accepted one
+    expect(box.configStore.load().notifications.templates.macos.GAME_DISCOVERED.title).toContain('New');
   });
 
   it('previews a template without delivering it', async () => {
@@ -297,7 +293,7 @@ describe('other endpoints', () => {
   });
 
   it('runs a notification test through the API', async () => {
-    const res = await app.inject({ method: 'POST', url: '/api/notifications/test', headers: auth(), payload: { adapter: 'imessage', event: 'APPROVAL_REQUIRED' } });
+    const res = await app.inject({ method: 'POST', url: '/api/notifications/test', headers: auth(), payload: { adapter: 'macos', event: 'APPROVAL_REQUIRED' } });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { report: { status: string } }).report.status).toBe('delivered');
   });

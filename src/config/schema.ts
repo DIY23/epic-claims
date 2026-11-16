@@ -14,7 +14,7 @@ const templateSet = z.object(
 );
 
 const adapterToggle = z.object({ enabled: z.boolean() }).strict();
-const eventToggle = z.object({ macos: adapterToggle, imessage: adapterToggle }).strict();
+const eventToggle = z.object({ macos: adapterToggle }).strict();
 const eventToggles = z.object(
   Object.fromEntries(EVENT_TYPES.map((e) => [e, eventToggle])) as Record<(typeof EVENT_TYPES)[number], typeof eventToggle>,
 );
@@ -116,56 +116,13 @@ const macOSAdapterSchema = z
   })
   .strict();
 
-const bridgeSchema = z
-  .object({
-    /** Base URL of an optional BlueBubbles server (local HTTP API). */
-    baseUrl: z.string().default(''),
-    password: z.string().default(''),
-  })
-  .strict();
 
-const iMessageAdapterSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    /** Buddy handle: phone number or Apple ID email. */
-    recipient: z.string().default(''),
-    /**
-     * photon      — local Photon iMessage gateway (works without iMessage on the
-     *               Apple account and never launches Messages.app)
-     * applescript — Messages.app on this Mac (needs an iMessage-capable account)
-     * bluebubbles — self-hosted BlueBubbles server
-     */
-    transport: z.enum(['photon', 'applescript', 'bluebubbles']).default('photon'),
-    service: z.enum(['iMessage', 'SMS']).default('iMessage'),
-    bridge: bridgeSchema.default({ baseUrl: '', password: '' }),
-    photon: z
-      .object({
-        baseUrl: z.string().default('http://127.0.0.1:8789'),
-        /** Chat/space id, e.g. "any;-;+32470000000". */
-        spaceId: z.string().default(''),
-        /** File holding the sidecar token; defaults to this profile's Photon config. */
-        tokenFile: z.string().default('~/.hermes/photon-sidecar.json'),
-        /** Render approval prompts as a native iMessage poll (Claim / Skip). */
-        usePoll: z.boolean().default(true),
-      })
-      .strict()
-      .default({ baseUrl: 'http://127.0.0.1:8789', spaceId: '', tokenFile: '~/.hermes/photon-sidecar.json' }),
-    /** How often to look for replies when approvals are pending. */
-    replyPollSeconds: z.number().int().min(10).max(3600).default(60),
-    /** Only accept approval commands from this handle (defaults to recipient). */
-    commandSender: z.string().default(''),
-    /** Path to Messages chat database (read-only). */
-    chatDbPath: z.string().default('~/Library/Messages/chat.db'),
-    sendTimeoutSeconds: z.number().int().min(5).max(120).default(30),
-  })
-  .strict();
 
 const notificationsSchema = z
   .object({
     adapters: z
       .object({
         macos: macOSAdapterSchema,
-        imessage: iMessageAdapterSchema,
       })
       .strict(),
     /** Per-event, per-adapter delivery toggles. */
@@ -174,7 +131,6 @@ const notificationsSchema = z
     templates: z
       .object({
         macos: templateSet,
-        imessage: templateSet,
       })
       .strict(),
     /** Global off-switch that keeps the app running with no notifications. */

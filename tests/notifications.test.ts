@@ -21,6 +21,8 @@ class FakeAdapter implements NotificationAdapter {
     this.displayName = id;
   }
   isEnabled(config: Config, event: AppEventType): boolean {
+    const adapter = (config.notifications.adapters as unknown as Record<string, { enabled?: boolean }>)[this.id];
+    if (adapter && adapter.enabled === false) return false;
     const t = (config.notifications.events as unknown as Record<string, Record<string, { enabled: boolean }>>)[event];
     return (t?.[this.id] as { enabled: boolean } | undefined)?.enabled === true;
   }
@@ -47,7 +49,6 @@ class FakeAdapter implements NotificationAdapter {
 
 let box: Sandbox;
 let macos: FakeAdapter;
-let imessage: FakeAdapter;
 let manager: NotificationManager;
 
 function discoverEvent(title = 'Game One'): AppEvent {
@@ -63,9 +64,8 @@ function discoverEvent(title = 'Game One'): AppEvent {
 beforeEach(() => {
   box = makeSandbox();
   macos = new FakeAdapter('macos', { interactive: true });
-  imessage = new FakeAdapter('imessage');
   manager = new NotificationManager({
-    adapters: [macos, imessage],
+    adapters: [macos],
     repos: box.repos,
     clock: box.clock,
     logger: box.logger,
@@ -78,30 +78,36 @@ afterEach(() => {
 });
 
 describe('notification routing', () => {
-  it('delivers to every enabled channel independently', async () => {
+  it('delivers through the registered channel', async () => {
     const reports = await manager.dispatch(discoverEvent());
-    expect(reports.map((r) => r.adapter).sort()).toEqual(['imessage', 'macos']);
+    expect(reports.map((r) => r.adapter)).toEqual(['macos']);
     expect(macos.deliveries).toHaveLength(1);
-    expect(imessage.deliveries).toHaveLength(1);
+  });
+
+  it('sends nothing when the only channel is disabled', async () => {
+    box.configStore.update({ notifications: { adapters: { macos: { enabled: false } } } });
+    const reports = await manager.dispatch(discoverEvent());
+    expect(reports.every((r) => r.status !== 'delivered')).toBe(true);
+    expect(macos.deliveries).toHaveLength(0);
   });
 
   it('respects a per-event, per-adapter switch', async () => {
     await manager.dispatch(discoverEvent());
-    box.configStore.update({ notifications: { events: { GAME_DISCOVERED: { macos: { enabled: false }, imessage: { enabled: true } } } } });
+    box.configStore.update({ notifications: { events: { GAME_DISCOVERED: { macos: { enabled: false } } } } });
 
     const event = makeEvent('OFFER_EXPIRING', { offer: { id: 2, storeOfferId: 'o2', title: 'Expiring', publisher: '', kind: 'game', url: null, imageUrl: null, startAt: null, endAt: null, storeName: 'Epic' }, hoursLeft: 4 }, box.clock.now().toISOString());
     await manager.dispatch(event);
-    // OFFER_EXPIRING is off for macOS and on for iMessage by default
+    // OFFER_EXPIRING is off by default for macOS
     expect(macos.deliveries.find((d) => d.event === 'OFFER_EXPIRING')).toBeUndefined();
-    expect(imessage.deliveries.find((d) => d.event === 'OFFER_EXPIRING')).toBeDefined();
   });
 
-  it('keeps working when one adapter throws', async () => {
-    imessage.failWith = 'Messages.app unavailable';
-    const reports = await manager.dispatch(discoverEvent());
-    expect(reports.find((r) => r.adapter === 'imessage')?.status).toBe('failed');
-    expect(reports.find((r) => r.adapter === 'macos')?.status).toBe('delivered');
-    expect(macos.deliveries).toHaveLength(1);
+  it('keeps working when a channel throws', async () => {
+    const failing = new FakeAdapter('macos');
+    failing.failWith = 'Notification Center unavailable';
+    const m = new NotificationManager({ adapters: [failing], repos: box.repos, clock: box.clock, logger: box.logger, getConfig: () => box.configStore.load() });
+    const reports = await m.dispatch(discoverEvent());
+    expect(reports[0]?.status).toBe('failed');
+    expect(reports[0]?.errorMessage).toContain('unavailable');
   });
 
   it('never throws out of dispatch, even with a broken adapter', async () => {
@@ -150,14 +156,13 @@ describe('notification routing', () => {
   it('records delivery history', async () => {
     await manager.dispatch(discoverEvent());
     const rows = box.repos.notifications.recent(10);
-    expect(rows.filter((r) => r.status === 'delivered')).toHaveLength(2);
+    expect(rows.filter((r) => r.status === 'delivered')).toHaveLength(1);
   });
 
-  it('sends a test through one adapter only', async () => {
-    const report = await manager.test(discoverEvent(), 'imessage');
+  it('sends a test through the requested adapter', async () => {
+    const report = await manager.test(discoverEvent(), 'macos');
     expect(report.status).toBe('delivered');
-    expect(imessage.deliveries).toHaveLength(1);
-    expect(macos.deliveries).toHaveLength(0);
+    expect(macos.deliveries).toHaveLength(1);
   });
 
   it('reports an unknown adapter instead of throwing', async () => {
@@ -213,35 +218,11 @@ describe('templates', () => {
     expect(buildRenderContext(event).approval_code).toBe('abcd1234');
   });
 
-  it('uses separate templates per platform', () => {
+  it('ships one template set and no other channel', () => {
     const config = box.configStore.load();
     expect(config.notifications.templates.macos.GAME_DISCOVERED.title).toContain('{store_name}');
-    expect(config.notifications.templates.imessage.GAME_DISCOVERED.title).toBeUndefined();
-    expect(config.notifications.templates.imessage.GAME_DISCOVERED.body).not.toBe(config.notifications.templates.macos.GAME_DISCOVERED.body);
-  });
-});
-
-describe('iMessage rendering', () => {
-  it('always includes the reply command for approval requests', () => {
-    const adapter = new IMessageNotificationAdapter();
-    const ctx = {
-      config: box.configStore.load(),
-      logger: box.logger,
-      clock: box.clock,
-      approvalBaseUrl: 'http://127.0.0.1:8781',
-    };
-    const event = makeEvent(
-      'APPROVAL_REQUIRED',
-      { offer: { id: 1, storeOfferId: 'o', title: 'G', publisher: '', kind: 'game', url: null, imageUrl: null, startAt: null, endAt: null, storeName: 'Epic' }, approvalId: 1, shortCode: 'abcd1234', token: 'tok', expiresAt: '2026-11-19T00:00:00.000Z' },
-      box.clock.now().toISOString(),
-    );
-    const rendered = adapter.render(event, { body: '{game_name}' }, ctx);
-    expect(rendered.body).toContain('CLAIM abcd1234');
-    expect(rendered.body).toContain('SKIP abcd1234');
-    // This channel may only carry public links: no loopback URL, even though the
-    // approval URL exists internally for the notification buttons.
-    expect(rendered.body).not.toContain('127.0.0.1');
-    expect(rendered.body).not.toContain('/approve/tok');
+    expect(Object.keys(config.notifications.adapters)).toEqual(['macos']);
+    expect(Object.keys(config.notifications.templates)).toEqual(['macos']);
   });
 });
 

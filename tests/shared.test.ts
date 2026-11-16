@@ -4,7 +4,6 @@ import { backoffDelay, retry } from '../src/shared/http.js';
 import { httpJson } from '../src/shared/http.js';
 import { Logger, redact, sha256, randomToken, safeEqual, memorySink } from '../src/shared/logger.js';
 import { FakeClock } from '../src/shared/clock.js';
-import { appleDateToIso } from '../src/notify/imessage/reader.js';
 import { resolvePaths } from '../src/shared/paths.js';
 import { configSchema, describeIssues } from '../src/config/schema.js';
 import { defaultConfig } from '../src/config/defaults.js';
@@ -191,7 +190,4 @@ describe('clock helpers', () => {
     expect(clock.nowMs()).toBe(before + 1000);
   });
 
-  it('converts Apple timestamps', () => {
-    expect(appleDateToIso(814848602116619008)).toBe('2026-10-28T02:50:02.116Z');
-  });
 });

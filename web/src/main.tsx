@@ -390,7 +390,7 @@ function Notifications(): React.ReactElement {
   const { show } = useToast();
   const [matrix, setMatrix] = useState<{ adapters: Array<{ id: string; enabled: boolean; configured: boolean; detail: string }>; events: MatrixEvent[] } | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
-  const [editing, setEditing] = useState<{ event: string; adapter: 'macos' | 'imessage' } | null>(null);
+  const [editing, setEditing] = useState<{ event: string; adapter: 'macos' } | null>(null);
   const [draft, setDraft] = useState<Template | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
 
@@ -404,7 +404,7 @@ function Notifications(): React.ReactElement {
     void load();
   }, [load]);
 
-  const toggle = async (event: string, adapter: 'macos' | 'imessage', enabled: boolean): Promise<void> => {
+  const toggle = async (event: string, adapter: 'macos', enabled: boolean): Promise<void> => {
     try {
       await put('/api/notifications/toggles', { events: { [event]: { [adapter]: enabled } } });
       await load();
@@ -459,7 +459,7 @@ function Notifications(): React.ReactElement {
   return (
     <section>
       <h1>Notifications</h1>
-      <p className="sub">Each channel is independent, and every event has its own switch and its own template per platform.</p>
+      <p className="sub">Every event has its own switch and its own editable template. Native macOS notifications carry Claim / Skip buttons.</p>
 
       <h2>Channels</h2>
       <table>
@@ -480,15 +480,10 @@ function Notifications(): React.ReactElement {
                 <label className="switch">
                   <input
                     type="checkbox"
-                    checked={a.id === 'macos' ? config.notifications.adapters.macos.enabled : config.notifications.adapters.imessage.enabled}
+                    checked={config.notifications.adapters.macos.enabled}
                     onChange={async (e) => {
-                      const enabled = e.target.checked;
                       try {
-                        const patch =
-                          a.id === 'macos'
-                            ? { notifications: { adapters: { macos: { enabled } } } }
-                            : { notifications: { adapters: { imessage: { enabled } } } };
-                        await put('/api/config', patch);
+                        await put('/api/config', { notifications: { adapters: { macos: { enabled: e.target.checked } } } });
                         await load();
                       } catch (err) {
                         show((err as Error).message, true);
@@ -509,53 +504,12 @@ function Notifications(): React.ReactElement {
         </tbody>
       </table>
 
-      {config.notifications.adapters.imessage.enabled && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="label">iMessage settings</div>
-          <div className="grid2" style={{ marginTop: 8 }}>
-            <label className="field">
-              <span>Recipient handle (phone or Apple ID)</span>
-              <input
-                type="text"
-                defaultValue={config.notifications.adapters.imessage.recipient}
-                onBlur={async (e) => {
-                  try {
-                    await put('/api/config', { notifications: { adapters: { imessage: { recipient: e.target.value } } } });
-                    await load();
-                  } catch (err) {
-                    show((err as Error).message, true);
-                  }
-                }}
-              />
-            </label>
-            <label className="field">
-              <span>Transport</span>
-              <select
-                defaultValue={config.notifications.adapters.imessage.transport}
-                onChange={async (e) => {
-                  try {
-                    await put('/api/config', { notifications: { adapters: { imessage: { transport: e.target.value } } } });
-                    await load();
-                  } catch (err) {
-                    show((err as Error).message, true);
-                  }
-                }}
-              >
-                <option value="applescript">Messages.app (AppleScript)</option>
-                <option value="bluebubbles">BlueBubbles bridge</option>
-              </select>
-            </label>
-          </div>
-        </div>
-      )}
-
       <h2>Event matrix</h2>
       <table>
         <thead>
           <tr>
             <th>Event</th>
             <th>macOS</th>
-            <th>iMessage</th>
             <th>Templates</th>
           </tr>
         </thead>
@@ -567,24 +521,16 @@ function Notifications(): React.ReactElement {
                 <input type="checkbox" checked={e.toggles.macos} onChange={(ev) => void toggle(e.event, 'macos', ev.target.checked)} />
               </td>
               <td>
-                <input type="checkbox" checked={e.toggles.imessage} onChange={(ev) => void toggle(e.event, 'imessage', ev.target.checked)} />
-              </td>
-              <td>
-                <div className="row">
-                  {(['macos', 'imessage'] as const).map((adapter) => (
-                    <button
-                      key={adapter}
-                      className="action"
-                      onClick={() => {
-                        setEditing({ event: e.event, adapter });
-                        setDraft(e.templates[adapter] ? { ...e.templates[adapter]! } : { body: '{game_name}' });
-                        setPreview(null);
-                      }}
-                    >
-                      Edit {adapter}
-                    </button>
-                  ))}
-                </div>
+                <button
+                  className="action"
+                  onClick={() => {
+                    setEditing({ event: e.event, adapter: 'macos' });
+                    setDraft(e.templates.macos ? { ...e.templates.macos } : { body: '{game_name}' });
+                    setPreview(null);
+                  }}
+                >
+                  Edit
+                </button>
               </td>
             </tr>
           ))}

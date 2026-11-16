@@ -4,6 +4,29 @@ import { AppError } from '../shared/errors.js';
 import { configSchema, describeIssues, type Config } from './schema.js';
 import { defaultConfig, mergeConfig } from './defaults.js';
 
+/**
+ * Removes configuration belonging to adapters this version no longer ships
+ * (iMessage was removed in 2.0.0). Strict validation would otherwise reject an
+ * existing config.json, and an update must never break a running install.
+ */
+export function pruneLegacyAdapters(raw: unknown): unknown {
+  if (typeof raw !== 'object' || raw === null) return raw;
+  const config = raw as Record<string, unknown>;
+  const notifications = config.notifications as Record<string, unknown> | undefined;
+  if (!notifications || typeof notifications !== 'object') return raw;
+  const adapters = notifications.adapters as Record<string, unknown> | undefined;
+  if (adapters) delete adapters.imessage;
+  const templates = notifications.templates as Record<string, unknown> | undefined;
+  if (templates) delete templates.imessage;
+  const events = notifications.events as Record<string, Record<string, unknown>> | undefined;
+  if (events) {
+    for (const toggle of Object.values(events)) {
+      if (toggle && typeof toggle === 'object') delete toggle.imessage;
+    }
+  }
+  return config;
+}
+
 export interface ConfigStoreOptions {
   filePath: string;
   /** Create the file (and its directory) with defaults when missing. */
@@ -42,7 +65,7 @@ export class ConfigStore {
     } catch (e) {
       throw new AppError('CONFIG_INVALID', `cannot read ${this.opts.filePath}: ${(e as Error).message}`, { file: this.opts.filePath });
     }
-    const merged = mergeConfig(defaultConfig(), raw);
+    const merged = mergeConfig(defaultConfig(), pruneLegacyAdapters(raw));
     const parsed = configSchema.safeParse(merged);
     if (!parsed.success) {
       const issues = describeIssues(parsed.error);

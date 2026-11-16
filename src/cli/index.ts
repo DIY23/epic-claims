@@ -419,10 +419,10 @@ export function buildProgram(): Command {
             out(`  ${a.id.padEnd(10)} ${a.enabled ? 'enabled ' : 'disabled'} ${a.configured ? c.green('ready') : c.yellow('not ready')}  ${c.dim(a.detail)}`);
           }
           out('');
-          out(c.bold('event matrix') + c.dim('   macOS / iMessage'));
+          out(c.bold('event matrix'));
           for (const e of EVENT_TYPES) {
             const t = (config.notifications.events as unknown as Record<string, Record<string, { enabled: boolean }>>)[e];
-            out(`  ${EVENT_LABELS[e].padEnd(28)} ${t?.['macos']?.enabled ? c.green('on ') : c.dim('off')}     ${t?.['imessage']?.enabled ? c.green('on ') : c.dim('off')}`);
+            out(`  ${EVENT_LABELS[e].padEnd(28)} ${t?.['macos']?.enabled ? c.green('on ') : c.dim('off')}`);
           }
         });
       } catch (e) {
@@ -432,7 +432,7 @@ export function buildProgram(): Command {
   notify
     .command('test')
     .description('send a test notification through one adapter')
-    .requiredOption('--adapter <adapter>', 'macos|imessage')
+    .option('--adapter <adapter>', 'adapter to use', 'macos')
     .option('--event <event>', 'event to render', 'GAME_DISCOVERED')
     .action(async (opts: { adapter: string; event: string }) => {
       try {
@@ -473,36 +473,9 @@ export function buildProgram(): Command {
     });
 
   notify
-    .command('photon <spaceId>')
-    .description('route iMessage notifications through the local Photon gateway and enable the channel')
-    .option('--base-url <url>', 'gateway base URL', 'http://127.0.0.1:8789')
-    .option('--test', 'send a test message immediately')
-    .action(async (spaceId: string, opts: { baseUrl: string; test?: boolean }) => {
-      try {
-        await withCore(async (core) => {
-          core.configStore.update({
-            notifications: {
-              adapters: {
-                imessage: { enabled: true, transport: 'photon', photon: { baseUrl: opts.baseUrl, spaceId } },
-              },
-            },
-          });
-          out(c.green(`iMessage channel now uses the Photon gateway (${opts.baseUrl}, space ${spaceId})`));
-          if (opts.test) {
-            const report = await core.notifications.test(buildExampleEvent('APPROVAL_REQUIRED', new Date().toISOString()), 'imessage');
-            out(report.status === 'delivered' ? c.green('test message sent') : c.red(`test failed: ${report.errorCode} ${report.errorMessage ?? ''}`));
-            if (report.status !== 'delivered') process.exit(EXIT_ERROR);
-          }
-        });
-      } catch (e) {
-        exitFor(e);
-      }
-    });
-
-  notify
     .command('show')
     .description('print the templates for one adapter')
-    .requiredOption('--adapter <adapter>', 'macos|imessage')
+    .option('--adapter <adapter>', 'adapter to use', 'macos')
     .option('--event <event>', 'only this event')
     .action(async (opts: { adapter: string; event?: string }) => {
       try {

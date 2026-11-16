@@ -291,12 +291,10 @@ export async function createApiServer(services: ApiServices): Promise<FastifyIns
         label: EVENT_LABELS[e],
         toggles: {
           macos: (config.notifications.events as unknown as Record<string, { macos?: { enabled: boolean } }>)[e]?.macos?.enabled ?? false,
-          imessage: (config.notifications.events as unknown as Record<string, { imessage?: { enabled: boolean } }>)[e]?.imessage?.enabled ?? false,
         },
         variables: EVENT_VARIABLES[e],
         templates: {
           macos: (config.notifications.templates as unknown as Record<string, Record<string, TemplateFields> | undefined>)['macos']?.[e] ?? null,
-          imessage: (config.notifications.templates as unknown as Record<string, Record<string, TemplateFields> | undefined>)['imessage']?.[e] ?? null,
         },
       })),
     };
@@ -304,7 +302,10 @@ export async function createApiServer(services: ApiServices): Promise<FastifyIns
 
   app.post('/api/notifications/test', async (req) => {
     const parsed = testSchema.safeParse(req.body);
-    if (!parsed.success) throw new AppError('CONFIG_INVALID', 'body must be {"adapter":"macos"|"imessage","event":"EVENT"}');
+    if (!parsed.success) throw new AppError('CONFIG_INVALID', 'body must be {"adapter":"macos","event":"EVENT"}');
+    if (!services.notifications.getAdapterIds().includes(parsed.data.adapter)) {
+      throw new AppError('CONFIG_INVALID', `unknown adapter ${parsed.data.adapter} (available: ${services.notifications.getAdapterIds().join(', ')})`);
+    }
     const event = buildExampleEvent(parsed.data.event, services.clock.now().toISOString());
     const report = await services.notifications.test(event, parsed.data.adapter);
     return { report };
@@ -322,6 +323,7 @@ export async function createApiServer(services: ApiServices): Promise<FastifyIns
     const body = req.body as { adapter?: string; event?: string; template?: Record<string, unknown> } | undefined;
     if (!body?.adapter || !body.event || !body.template) throw new AppError('CONFIG_INVALID', 'body must be {"adapter","event","template"}');
     if (!(EVENT_TYPES as string[]).includes(body.event)) throw new AppError('CONFIG_INVALID', `unknown event ${body.event}`);
+    if (!services.notifications.getAdapterIds().includes(body.adapter)) throw new AppError('CONFIG_INVALID', `unknown adapter ${body.adapter}`);
     const template = normaliseTemplate(body.template);
     const issues = validateTemplate(body.event as (typeof EVENT_TYPES)[number], template);
     if (issues.length > 0) throw new AppError('CONFIG_INVALID', 'template is invalid', { issues });
@@ -336,13 +338,13 @@ export async function createApiServer(services: ApiServices): Promise<FastifyIns
 
   app.put('/api/notifications/toggles', async (req) => {
     const body = req.body as { events?: Record<string, Record<string, boolean>> } | undefined;
-    if (!body?.events) throw new AppError('CONFIG_INVALID', 'body must be {"events":{"EVENT":{"macos":bool,"imessage":bool}}}');
+    if (!body?.events) throw new AppError('CONFIG_INVALID', 'body must be {"events":{"EVENT":{"macos":bool}}}');
     const patch: Record<string, Record<string, { enabled: boolean }>> = {};
     for (const [event, toggles] of Object.entries(body.events)) {
       if (!(EVENT_TYPES as string[]).includes(event)) throw new AppError('CONFIG_INVALID', `unknown event ${event}`);
       const eventPatch: Record<string, { enabled: boolean }> = {};
       for (const [adapter, enabled] of Object.entries(toggles)) {
-        if (adapter !== 'macos' && adapter !== 'imessage') throw new AppError('CONFIG_INVALID', `unknown adapter ${adapter}`);
+        if (!services.notifications.getAdapterIds().includes(adapter)) throw new AppError('CONFIG_INVALID', `unknown adapter ${adapter}`);
         eventPatch[adapter] = { enabled: Boolean(enabled) };
       }
       patch[event] = eventPatch;

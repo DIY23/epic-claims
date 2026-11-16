@@ -37,7 +37,7 @@ export interface TemplateFields {
   subtitle?: string;
   /** both */
   body: string;
-  /** macOS action button labels + iMessage command words */
+  /** Action labels shown by adapters that support buttons */
   approveLabel?: string;
   skipLabel?: string;
 }

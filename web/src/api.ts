@@ -93,9 +93,9 @@ export interface OfferRow {
 export interface MatrixEvent {
   event: string;
   label: string;
-  toggles: { macos: boolean; imessage: boolean };
+  toggles: { macos: boolean };
   variables: string[];
-  templates: { macos: Template | null; imessage: Template | null };
+  templates: { macos: Template | null };
 }
 
 export interface Template {
@@ -131,7 +131,6 @@ export interface Config {
     enabled: boolean;
     adapters: {
       macos: { enabled: boolean; sound: boolean; interactiveActions: boolean };
-      imessage: { enabled: boolean; recipient: string; transport: 'applescript' | 'bluebubbles'; service: 'iMessage' | 'SMS'; bridge: { baseUrl: string; password: string }; replyPollSeconds: number; commandSender: string };
     };
   };
   api: { host: string; port: number; publicBaseUrl: string };

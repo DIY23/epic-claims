@@ -1,39 +1,39 @@
 import { EVENT_TYPES } from '../shared/events.js';
-import { DEFAULT_IMESSAGE_TEMPLATES, DEFAULT_MACOS_TEMPLATES, cloneTemplates } from '../notify/default-templates.js';
+import { DEFAULT_MACOS_TEMPLATES, cloneTemplates } from '../notify/default-templates.js';
 import type { Config } from './schema.js';
 
-type EventToggles = Record<(typeof EVENT_TYPES)[number], { macos: Toggle; imessage: Toggle }>;
+type EventToggles = Record<(typeof EVENT_TYPES)[number], { macos: Toggle }>;
 type Toggle = { enabled: boolean };
 
 /**
- * Default delivery matrix. Channels are independent: turning macOS off never
- * affects iMessage and vice versa. iMessage starts disabled (it needs a
- * recipient handle and a granted permission), macOS starts enabled.
+ * Default delivery matrix. macOS is the only shipped channel (2.0.0 removed the
+ * iMessage adapter); the adapter interface stays, so another channel can be
+ * added without touching the claim engine.
  */
-const DEFAULT_EVENT_TOGGLES: Record<(typeof EVENT_TYPES)[number], { macos: boolean; imessage: boolean }> = {
-  GAME_DISCOVERED: { macos: true, imessage: true },
-  CLAIM_SUCCEEDED: { macos: true, imessage: false },
-  CLAIM_FAILED: { macos: true, imessage: true },
-  APPROVAL_REQUIRED: { macos: true, imessage: true },
-  APPROVAL_ACCEPTED: { macos: false, imessage: true },
-  APPROVAL_REJECTED: { macos: false, imessage: true },
-  APPROVAL_EXPIRED: { macos: true, imessage: true },
-  GAME_ALREADY_OWNED: { macos: false, imessage: false },
-  OFFER_EXPIRING: { macos: false, imessage: true },
-  AUTHENTICATION_EXPIRED: { macos: true, imessage: true },
-  APPLICATION_ERROR: { macos: true, imessage: true },
-  FIRST_RUN_SUMMARY: { macos: true, imessage: true },
-  UPDATE_AVAILABLE: { macos: true, imessage: true },
-  UPDATE_INSTALLED: { macos: true, imessage: false },
-  UPDATE_FAILED: { macos: true, imessage: true },
-  RESTART_REQUIRED: { macos: true, imessage: true },
+const DEFAULT_EVENT_TOGGLES: Record<(typeof EVENT_TYPES)[number], { macos: boolean }> = {
+  GAME_DISCOVERED: { macos: true },
+  CLAIM_SUCCEEDED: { macos: true },
+  CLAIM_FAILED: { macos: true },
+  APPROVAL_REQUIRED: { macos: true },
+  APPROVAL_ACCEPTED: { macos: false },
+  APPROVAL_REJECTED: { macos: false },
+  APPROVAL_EXPIRED: { macos: true },
+  GAME_ALREADY_OWNED: { macos: false },
+  OFFER_EXPIRING: { macos: false },
+  AUTHENTICATION_EXPIRED: { macos: true },
+  APPLICATION_ERROR: { macos: true },
+  FIRST_RUN_SUMMARY: { macos: true },
+  UPDATE_AVAILABLE: { macos: true },
+  UPDATE_INSTALLED: { macos: true },
+  UPDATE_FAILED: { macos: true },
+  RESTART_REQUIRED: { macos: true },
 };
 
 export function defaultConfig(): Config {
   const events = {} as EventToggles;
   for (const e of EVENT_TYPES) {
     const t = DEFAULT_EVENT_TOGGLES[e];
-    events[e] = { macos: { enabled: t.macos }, imessage: { enabled: t.imessage } };
+      events[e] = { macos: { enabled: t.macos } };
   }
 
   return {
@@ -77,23 +77,10 @@ export function defaultConfig(): Config {
       enabled: true,
       adapters: {
         macos: { enabled: true, sound: true, interactiveActions: true, helperPath: null },
-        imessage: {
-          enabled: false,
-          recipient: '',
-          transport: 'photon',
-          service: 'iMessage',
-          bridge: { baseUrl: '', password: '' },
-          photon: { baseUrl: 'http://127.0.0.1:8789', spaceId: '', tokenFile: '~/.hermes/photon-sidecar.json', usePoll: true },
-          replyPollSeconds: 60,
-          commandSender: '',
-          chatDbPath: '~/Library/Messages/chat.db',
-          sendTimeoutSeconds: 30,
-        },
       },
       events,
       templates: {
         macos: cloneTemplates(DEFAULT_MACOS_TEMPLATES),
-        imessage: cloneTemplates(DEFAULT_IMESSAGE_TEMPLATES),
       },
     },
     api: { enabled: true, host: '127.0.0.1', port: 8781, publicBaseUrl: 'http://127.0.0.1:8781' },

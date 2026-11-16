@@ -2,9 +2,9 @@ import type { AppEventType } from '../shared/events.js';
 import type { TemplateSet } from './template-vars.js';
 
 /**
- * Default, platform-specific templates. macOS and iMessage are deliberately NOT
- * the same: macOS notifications get a title/subtitle/body and action labels,
- * iMessage gets a compact multi-line message with explicit reply commands.
+ * Default templates. Each adapter renders its own: macOS gets a title, subtitle,
+ * body and action labels. Adding a channel means adding a set here plus an
+ * adapter — the claim engine never changes.
  */
 export const DEFAULT_MACOS_TEMPLATES: TemplateSet = {
   GAME_DISCOVERED: {
@@ -91,69 +91,13 @@ export const DEFAULT_MACOS_TEMPLATES: TemplateSet = {
   },
 };
 
-export const DEFAULT_IMESSAGE_TEMPLATES: TemplateSet = {
-  GAME_DISCOVERED: {
-    body: '🎮 Free on {store_name}: {game_name} ({game_kind}) by {publisher}. Available until {offer_expiry}. {offer_url}',
-  },
-  CLAIM_SUCCEEDED: {
-    body: '✅ Claimed and verified: {game_name}. Owned in your Epic library.',
-  },
-  CLAIM_FAILED: {
-    body: '⚠️ Claim failed: {game_name} ({error_code}). {error_message}',
-  },
-  APPROVAL_REQUIRED: {
-    // Sent as three parts: this line, the store page as a link card, then the
-    // Claim/Skip poll. No local URL ever appears here.
-    body: '🎮 Free on {store_name}: {game_name} ({game_kind}) by {publisher}. Available until {offer_expiry}.',
-    approveLabel: 'Claim',
-    skipLabel: 'Skip',
-  },
-  APPROVAL_ACCEPTED: {
-    body: '👍 Approved: {game_name}. Claiming now.',
-  },
-  APPROVAL_REJECTED: {
-    body: '👌 Skipped: {game_name}.',
-  },
-  APPROVAL_EXPIRED: {
-    body: '⌛ Approval expired for {game_name}. Not claimed.',
-  },
-  GAME_ALREADY_OWNED: {
-    body: '📚 Already in your library: {game_name}.',
-  },
-  OFFER_EXPIRING: {
-    body: '⏳ {hours_left}h left: {game_name} — free until {offer_expiry}. {offer_url}',
-  },
-  AUTHENTICATION_EXPIRED: {
-    body: '🔐 Epic session expired ({reason}). Re-authenticate on the Mac: epic-claims auth login',
-  },
-  APPLICATION_ERROR: {
-    body: '🐞 Epic Claims error in {error_scope}: {error_code} — {error_message}',
-  },
-  FIRST_RUN_SUMMARY: {
-    body: '👋 First scan complete: {free_count} free game(s) on the Epic Games Store. Nothing has been claimed. Open the dashboard to choose, then run "epic-claims claim --all" if you want them all. {hint}',
-  },
-  UPDATE_AVAILABLE: {
-    body: '⬆️ Epic Claims {available_version} is available (installed {current_version}). Run: epic-claims update',
-  },
-  UPDATE_INSTALLED: {
-    body: '🔄 Epic Claims updated {from_version} → {to_version}.',
-  },
-  UPDATE_FAILED: {
-    body: '❌ Epic Claims update to {to_version} failed: {error_code} — {error_message} (rolled back: {rolled_back})',
-  },
-  RESTART_REQUIRED: {
-    body: '🔁 Epic Claims {restart_version} needs a restart: {reason}',
-  },
-};
-
 export function cloneTemplates<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
-export type AdapterId = 'macos' | 'imessage';
-export const ADAPTER_IDS: AdapterId[] = ['macos', 'imessage'];
+export type AdapterId = 'macos';
+export const ADAPTER_IDS: AdapterId[] = ['macos'];
 
 export const DEFAULT_TEMPLATES: Record<AdapterId, TemplateSet> = {
   macos: DEFAULT_MACOS_TEMPLATES,
-  imessage: DEFAULT_IMESSAGE_TEMPLATES,
 };

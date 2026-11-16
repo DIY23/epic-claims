@@ -13,10 +13,7 @@ import { EventBus } from './shared/events.js';
 import { ClaimEngine } from './claim/claimEngine.js';
 import { NotificationManager } from './notify/manager.js';
 import { MacOSNotificationAdapter } from './notify/adapters/macos.js';
-import { IMessageNotificationAdapter, chatDbPath } from './notify/adapters/imessage.js';
 import { NotifierClient, locateHelper } from './notify/macos/helper.js';
-import { MessagesDbReader, NullReader, type MessageReader } from './notify/imessage/reader.js';
-import { IMessageCommandService } from './notify/imessage/commands.js';
 import { Scheduler } from './scheduler/scheduler.js';
 import { LaunchdService } from './service/launchd.js';
 import { Updater } from './update/installer.js';
@@ -40,7 +37,6 @@ export interface CoreOptions {
   logLevel?: LogLevel;
   /** Skip the single-instance guard (used by tests and by one-shot CLI commands). */
   allowConcurrent?: boolean;
-  messageReader?: MessageReader;
 }
 
 export interface RuntimePaths {
@@ -83,7 +79,6 @@ export class AppCore {
   readonly provider: StoreProvider;
   readonly engine: ClaimEngine;
   readonly notifications: NotificationManager;
-  readonly commandService: IMessageCommandService;
   readonly scheduler: Scheduler;
   readonly service: LaunchdService;
   readonly updater: Updater;
@@ -92,7 +87,7 @@ export class AppCore {
   readonly runtimePaths: RuntimePaths;
 
   private server: FastifyInstance | null = null;
-  private commandTimer: NodeJS.Timeout | null = null;
+  private approvalTimer: NodeJS.Timeout | null = null;
   private pidLocked = false;
   private stopping = false;
 
@@ -111,7 +106,6 @@ export class AppCore {
     this.provider = built.provider;
     this.engine = built.engine;
     this.notifications = built.notifications;
-    this.commandService = built.commandService;
     this.scheduler = built.scheduler;
     this.service = built.service;
     this.updater = built.updater;
@@ -190,10 +184,9 @@ export class AppCore {
       ],
       dataDir: paths.dataDir,
     });
-    const imessage = new IMessageNotificationAdapter();
 
     const notifications = new NotificationManager({
-      adapters: [macos, imessage],
+      adapters: [macos],
       repos,
       clock,
       logger: logger.child('notify'),
@@ -206,33 +199,6 @@ export class AppCore {
 
     const engine = new ClaimEngine({ provider, repos, bus, clock, logger: logger.child('engine'), getConfig });
 
-    // Reading Messages.app's database only makes sense for the AppleScript
-    // transport. With Photon there is nothing to read locally, and we must not
-    // touch Messages.app at all.
-    const imessageCfg = getConfig().notifications.adapters.imessage;
-    const reader =
-      opts.messageReader ??
-      (imessageCfg.enabled && imessageCfg.transport === 'applescript' ? new MessagesDbReader(chatDbPath(getConfig())) : new NullReader());
-    const commandService = new IMessageCommandService({
-      reader,
-      repos,
-      clock,
-      logger: logger.child('imessage'),
-      getConfig,
-      decide: (input) => engine.handleApprovalDecision({ shortCode: input.shortCode, decision: input.decision, decidedBy: input.decidedBy }),
-      getTransport: () => {
-        const cfg = getConfig().notifications.adapters.imessage;
-        // Inbound reply commands are an AppleScript-transport feature; with
-        // Photon the gateway owns that stream and approvals use the link.
-        if (!cfg.enabled || cfg.transport !== 'applescript' || !cfg.recipient) return null;
-        try {
-          return imessage.resolveTransport(getConfig());
-        } catch {
-          return null;
-        }
-      },
-    });
-
     const scheduler = new Scheduler({
       engine,
       repos,
@@ -241,7 +207,6 @@ export class AppCore {
       getConfig,
       afterCycle: async () => {
         await engine.expireApprovals();
-        await commandService.poll().catch(() => undefined);
       },
     });
 
@@ -288,7 +253,6 @@ export class AppCore {
       provider,
       engine,
       notifications,
-      commandService,
       scheduler,
       service,
       updater,
@@ -425,16 +389,15 @@ export class AppCore {
   async startBackground(): Promise<void> {
     const config = this.configStore.load();
     await this.scheduler.start();
-    const intervalMs = Math.max(10_000, config.notifications.adapters.imessage.replyPollSeconds * 1000);
-    if (config.notifications.adapters.imessage.enabled) {
-      this.commandTimer = setInterval(() => {
-        void this.commandService.poll().catch((e) => this.logger.child('imessage').warn('command poll failed', { error: (e as Error).message }));
-        void this.engine.expireApprovals().catch(() => undefined);
-        void this.drainNotifierActions().catch(() => undefined);
-      }, intervalMs);
-      this.commandTimer.unref?.();
-      this.logger.info('inbound approval polling enabled', { everySeconds: intervalMs / 1000 });
-    }
+    // Approval housekeeping: expire what nobody answered and pick up notification
+    // clicks that were written to the helper's durable log.
+    const intervalMs = Math.max(30_000, config.scheduling.approvalPollMinutes * 60_000);
+    this.approvalTimer = setInterval(() => {
+      void this.engine.expireApprovals().catch(() => undefined);
+      void this.drainNotifierActions().catch(() => undefined);
+    }, intervalMs);
+    this.approvalTimer.unref?.();
+    this.logger.info('approval housekeeping enabled', { everyMinutes: intervalMs / 60_000 });
   }
 
   /** Single-instance guard: one daemon per data directory. */
@@ -469,7 +432,7 @@ export class AppCore {
     this.stopping = true;
     this.logger.info('shutting down');
     this.scheduler.stop();
-    if (this.commandTimer) clearInterval(this.commandTimer);
+    if (this.approvalTimer) clearInterval(this.approvalTimer);
     try {
       await this.server?.close();
     } catch {
@@ -508,7 +471,6 @@ interface BuildParts {
   provider: StoreProvider;
   engine: ClaimEngine;
   notifications: NotificationManager;
-  commandService: IMessageCommandService;
   scheduler: Scheduler;
   service: LaunchdService;
   updater: Updater;

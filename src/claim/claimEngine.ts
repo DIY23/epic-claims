@@ -297,8 +297,8 @@ export class ClaimEngine {
 
     const token = randomToken(24);
     const tokenHash = sha256(token);
-    // Hex, not base64url: a code the user has to retype in iMessage should not
-    // contain '-' or '_'.
+    // Hex, not base64url: the code is meant to be read and retyped, so no '-'
+    // or '_'.
     const shortCode = tokenHash.slice(0, 8);
     const createdAt = clock.now().toISOString();
     const expiresAt = new Date(clock.nowMs() + config.claiming.approvalExpiryHours * 3_600_000).toISOString();
@@ -485,7 +485,7 @@ export class ClaimEngine {
 
   /**
    * Applies an explicit user decision. Accepts an approval id (dashboard/CLI) or
-   * a short code (iMessage command) — the caller is responsible for having
+   * a short code (typed into the dashboard or CLI) — the caller is responsible for having
    * authenticated the actor.
    */
   async handleApprovalDecision(input: {
