@@ -32,18 +32,43 @@ epic-claims update          # download, verify, install, restart — data untouc
   adapters render and deliver them. Disabling or breaking iMessage cannot affect
   claiming, and a channel being down is never read as approval.
 
-## Schedule
+## Schedule — anchored to the publish instant, not to a local clock
 
-Free games publish **Thursdays at 17:00 CET** (16:00Z / 11:00 EST / 08:00 PST).
-The default schedule is a wall-clock rule, not an interval:
+Epic publishes at **11:00 America/New_York**: 16:00 UTC in winter (17:00 CET,
+08:00 PST) and 15:00 UTC in summer (17:00 CEST). That is an *instant*, so the
+only correct rule for "30 minutes after the games go live" is expressed in the
+publisher's zone and then applied everywhere:
 
 ```json
-"scheduling": { "mode": "daily", "dailyTime": "17:30", "timeZone": "Europe/Brussels" }
+"scheduling": {
+  "mode": "release",
+  "releaseTime": "11:00",
+  "releaseTimeZone": "America/New_York",
+  "scanOffsetMinutes": 30
+}
 ```
 
-So the scan runs **every day at 17:30 local time** — thirty minutes after the
-Thursday release — and recovers automatically if the Mac was asleep or off at
-that moment. DST is handled by the timezone rule.
+The scan runs **every day at (publish instant + 30 min)**, whatever the machine's
+own zone is:
+
+| Machine zone | Winter (publish 16:00Z) | Summer (publish 15:00Z) |
+|---|---|---|
+| Brussels | 17:30 | 17:30 |
+| London | 16:30 | 16:30 |
+| New York | 11:30 | 11:30 |
+| Tokyo | 01:30 (Fri) | 00:30 (Fri) |
+| Sydney | 03:30 (Fri) | 02:30 (Fri) |
+
+No per-machine tuning is needed, and no time zone has to be configured. During
+the two-to-three weeks each year when the US and EU switch DST on different
+dates the Brussels clock reads 16:30 or 18:30 for the scan — correct, because
+the release instant is the thing being followed, not a local hour.
+
+A missed scan is recovered: if the Mac was asleep or off at that moment, the
+check runs as soon as the agent starts, once, then returns to the daily rule.
+Two other modes exist for people who want them — `daily` (fixed local wall-clock
+time, e.g. `"dailyTime": "17:30"` with `"timeZone"` empty for "this machine") and
+`interval` (every N hours).
 
 ## Claiming modes
 

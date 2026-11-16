@@ -116,7 +116,17 @@ export interface Config {
     minSecondsBeforeExpiry: number;
     rules: Array<{ id: string; enabled: boolean; field: string; op: string; value: string; action: 'claim' | 'approval' | 'skip'; note?: string }>;
   };
-  scheduling: { intervalHours: number; runOnStartup: boolean; expiringWarningHours: number };
+  scheduling: {
+    mode: 'release' | 'daily' | 'interval';
+    releaseTime: string;
+    releaseTimeZone: string;
+    scanOffsetMinutes: number;
+    dailyTime: string;
+    timeZone: string;
+    intervalHours: number;
+    runOnStartup: boolean;
+    expiringWarningHours: number;
+  };
   notifications: {
     enabled: boolean;
     adapters: {

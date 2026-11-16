@@ -50,14 +50,26 @@ const epicSchema = z
 
 const schedulingSchema = z
   .object({
-    /** 'daily' follows the free-game release clock; 'interval' is a coarse fallback. */
-    mode: z.enum(['daily', 'interval']).default('daily'),
-    /** Free games publish Thursdays 17:00 CET, so scan at 17:30 local time. */
+    /**
+     * 'release'  — 30 minutes after the store publishes (default, location-aware)
+     * 'daily'    — a fixed local wall-clock time
+     * 'interval' — every N hours (coarse fallback)
+     */
+    mode: z.enum(['release', 'daily', 'interval']).default('release'),
+    /** Publish time in the publisher's zone: 11:00 America/New_York = 17:00 CET. */
+    releaseTime: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'expected HH:MM (24h)')
+      .default('11:00'),
+    releaseTimeZone: z.string().default('America/New_York'),
+    /** Minutes to wait after the publish instant. */
+    scanOffsetMinutes: z.number().int().min(0).max(1440).default(30),
+    /** Only used by mode = 'daily'. Empty means "this machine's time zone". */
     dailyTime: z
       .string()
       .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'expected HH:MM (24h)')
       .default('17:30'),
-    timeZone: z.string().default('Europe/Brussels'),
+    timeZone: z.string().default(''),
     intervalHours: z.number().min(0.1).max(168).default(24),
     runOnStartup: z.boolean().default(true),
     /** Retry cadence for offers that are pending approval, in minutes. */

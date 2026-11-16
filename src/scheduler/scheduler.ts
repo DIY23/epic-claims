@@ -5,7 +5,7 @@ import type { Repositories } from '../db/repositories.js';
 import type { CycleSummary } from '../shared/types.js';
 import type { ClaimEngine } from '../claim/claimEngine.js';
 import { AppError } from '../shared/errors.js';
-import { nextDailyOccurrence, parseClock } from './daily.js';
+import { nextDailyOccurrence, nextReleaseScan, parseClock, systemTimeZone } from './daily.js';
 
 export interface SchedulerDeps {
   engine: ClaimEngine;
@@ -69,9 +69,16 @@ export class Scheduler {
 
     logger.child('scheduler').info('scheduler started', {
       mode: config.scheduling.mode,
-      dailyTime: config.scheduling.mode === 'daily' ? config.scheduling.dailyTime : null,
-      timeZone: config.scheduling.timeZone,
-      intervalHours: config.scheduling.mode === 'interval' ? config.scheduling.intervalHours : null,
+      ...(config.scheduling.mode === 'release'
+        ? {
+            releaseTime: config.scheduling.releaseTime,
+            releaseTimeZone: config.scheduling.releaseTimeZone,
+            scanOffsetMinutes: config.scheduling.scanOffsetMinutes,
+            localTimeZone: systemTimeZone(),
+          }
+        : config.scheduling.mode === 'daily'
+          ? { dailyTime: config.scheduling.dailyTime, timeZone: config.scheduling.timeZone || systemTimeZone() }
+          : { intervalHours: config.scheduling.intervalHours }),
       lastRun,
     });
 
@@ -91,8 +98,13 @@ export class Scheduler {
     const last = Date.parse(lastRunIso);
     if (!Number.isFinite(last)) return true;
     if (s.mode === 'interval') return clock.nowMs() - last >= s.intervalHours * 3_600_000;
+    if (s.mode === 'release') {
+      const release = parseClock(s.releaseTime) ?? { hour: 11, minute: 0 };
+      const due = nextReleaseScan(new Date(last), release, s.releaseTimeZone, s.scanOffsetMinutes);
+      return clock.nowMs() >= due.getTime();
+    }
     const time = parseClock(s.dailyTime) ?? { hour: 17, minute: 30 };
-    const due = nextDailyOccurrence(new Date(last), time, s.timeZone);
+    const due = nextDailyOccurrence(new Date(last), time, s.timeZone || systemTimeZone());
     return clock.nowMs() >= due.getTime();
   }
 
@@ -153,12 +165,26 @@ export class Scheduler {
     }
 
     let next: number;
-    if (config.scheduling.mode === 'daily') {
+    if (config.scheduling.mode === 'release') {
+      const release = parseClock(config.scheduling.releaseTime);
+      if (!release) {
+        logger.child('scheduler').error('invalid releaseTime, falling back to 11:00 America/New_York', {
+          releaseTime: config.scheduling.releaseTime,
+        });
+      }
+      const occurrence = nextReleaseScan(
+        clock.now(),
+        release ?? { hour: 11, minute: 0 },
+        config.scheduling.releaseTimeZone || 'America/New_York',
+        config.scheduling.scanOffsetMinutes,
+      );
+      next = occurrence.getTime();
+    } else if (config.scheduling.mode === 'daily') {
       const time = parseClock(config.scheduling.dailyTime);
       if (!time) {
         logger.child('scheduler').error('invalid dailyTime, falling back to 17:30', { dailyTime: config.scheduling.dailyTime });
       }
-      const occurrence = nextDailyOccurrence(clock.now(), time ?? { hour: 17, minute: 30 }, config.scheduling.timeZone);
+      const occurrence = nextDailyOccurrence(clock.now(), time ?? { hour: 17, minute: 30 }, config.scheduling.timeZone || systemTimeZone());
       next = occurrence.getTime();
     } else {
       const intervalMs = config.scheduling.intervalHours * 3_600_000;

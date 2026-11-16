@@ -67,3 +67,50 @@ export function hasPassedToday(instant: Date, time: DailyTime, timeZone: string)
   const p = zonedParts(instant, timeZone);
   return p.hour * 60 + p.minute >= time.hour * 60 + time.minute;
 }
+
+/** The machine's own time zone, e.g. "Europe/Brussels" or "Asia/Tokyo". */
+export function systemTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * Next scan instant for a release-anchored schedule.
+ *
+ * The anchor is the *publisher's* clock (11:00 America/New_York), not the local
+ * one: that is the only rule that stays "30 minutes after the games go live"
+ * everywhere. Consequences, all intentional:
+ *   - the store hands over games at 11:00 ET, i.e. 16:00Z in winter and 15:00Z
+ *     in summer (US DST), so the scan is 16:30Z / 15:30Z respectively
+ *   - on a machine in Brussels that reads 17:30 CET/CEST most of the year, but
+ *     16:30 or 18:30 during the two-to-three weeks when EU and US DST transitions
+ *     are out of step — correct, because the release instant is what matters
+ *   - on a machine in Tokyo or Sydney it simply fires at whatever their local
+ *     clock says at that instant
+ */
+export function nextReleaseScan(from: Date, releaseTime: DailyTime, releaseZone: string, offsetMinutes: number): Date {
+  const slot = nextDailyOccurrence(from, releaseTime, releaseZone);
+  const at = new Date(slot.getTime() + offsetMinutes * 60_000);
+  if (at.getTime() > from.getTime()) return at;
+  return new Date(slot.getTime() + 86_400_000 + offsetMinutes * 60_000);
+}
+
+/** How an instant reads on this machine, for status output. */
+export function describeLocal(instant: Date, timeZone: string = systemTimeZone()): string {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      weekday: 'short',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(instant);
+  } catch {
+    return instant.toISOString();
+  }
+}

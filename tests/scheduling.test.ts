@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { makeSandbox, makeOffer, eventsOfType, type Sandbox } from './helpers.js';
-import { nextDailyOccurrence, parseClock, zonedParts, hasPassedToday } from '../src/scheduler/daily.js';
+import { nextDailyOccurrence, nextReleaseScan, parseClock, zonedParts, hasPassedToday, systemTimeZone, describeLocal } from '../src/scheduler/daily.js';
 import { Scheduler } from '../src/scheduler/scheduler.js';
 
 let box: Sandbox;
@@ -62,6 +62,81 @@ describe('daily wall-clock scheduling', () => {
   it('reports whether the wall clock has passed the slot', () => {
     expect(hasPassedToday(new Date('2026-11-16T16:29:00.000Z'), SCAN, TZ)).toBe(false);
     expect(hasPassedToday(new Date('2026-11-16T16:31:00.000Z'), SCAN, TZ)).toBe(true);
+  });
+});
+
+describe('release-anchored scheduling (location independent)', () => {
+  const RELEASE = { hour: 11, minute: 0 };
+  const NY = 'America/New_York';
+
+  it('scans 30 minutes after the publish instant, in winter', () => {
+    // Monday 16/11/2026 09:00Z: 11:00 EST = 16:00Z
+    const next = nextReleaseScan(new Date('2026-11-16T09:00:00.000Z'), RELEASE, NY, 30);
+    expect(next.toISOString()).toBe('2026-11-16T16:30:00.000Z');
+    // and on this machine that reads 17:30 in Brussels
+    expect(zonedParts(next, 'Europe/Brussels')).toMatchObject({ hour: 17, minute: 30 });
+  });
+
+  it('scans 30 minutes after the publish instant, in summer (US DST)', () => {
+    // Wednesday 15/07/2026: 11:00 EDT = 15:00Z
+    const next = nextReleaseScan(new Date('2026-07-15T09:00:00.000Z'), RELEASE, NY, 30);
+    expect(next.toISOString()).toBe('2026-07-15T15:30:00.000Z');
+    expect(zonedParts(next, 'Europe/Brussels')).toMatchObject({ hour: 17, minute: 30 });
+  });
+
+  it('adapts during the window when EU and US DST are out of step', () => {
+    // 12/03/2026: the US is already on EDT (publish 15:00Z) while Europe is still
+    // on CET, so the scan is 16:30 local — not 17:30. Following the release
+    // instant is the requirement; the local clock is a consequence.
+    const next = nextReleaseScan(new Date('2026-03-12T09:00:00.000Z'), RELEASE, NY, 30);
+    expect(next.toISOString()).toBe('2026-03-12T15:30:00.000Z');
+    expect(zonedParts(next, 'Europe/Brussels')).toMatchObject({ hour: 16, minute: 30 });
+    expect(zonedParts(next, NY)).toMatchObject({ hour: 11, minute: 30 });
+  });
+
+  it('fires at the same instant on a machine in any zone', () => {
+    const from = new Date('2026-11-16T09:00:00.000Z');
+    const instant = nextReleaseScan(from, RELEASE, NY, 30);
+    expect(instant.toISOString()).toBe('2026-11-16T16:30:00.000Z');
+    // Same instant, different local readings — no per-machine tuning needed.
+    expect(zonedParts(instant, 'Asia/Tokyo')).toMatchObject({ hour: 1, minute: 30 });
+    expect(zonedParts(instant, 'America/Los_Angeles')).toMatchObject({ hour: 8, minute: 30 });
+    expect(zonedParts(instant, 'Australia/Sydney')).toMatchObject({ hour: 3, minute: 30 });
+  });
+
+  it('honours a custom offset', () => {
+    const next = nextReleaseScan(new Date('2026-11-16T09:00:00.000Z'), RELEASE, NY, 0);
+    expect(next.toISOString()).toBe('2026-11-16T16:00:00.000Z');
+    const late = nextReleaseScan(new Date('2026-11-16T09:00:00.000Z'), RELEASE, NY, 120);
+    expect(late.toISOString()).toBe('2026-11-16T18:00:00.000Z');
+  });
+
+  it('rolls to the next day once today’s scan has passed', () => {
+    const next = nextReleaseScan(new Date('2026-11-16T17:00:00.000Z'), RELEASE, NY, 30);
+    expect(zonedParts(next, NY)).toMatchObject({ day: 17, hour: 11, minute: 30 });
+  });
+
+  it('knows the machine time zone and renders instants in it', () => {
+    expect(systemTimeZone().length).toBeGreaterThan(2);
+    expect(describeLocal(new Date('2026-11-16T16:30:00.000Z'), 'Europe/Brussels')).toContain('17:30');
+  });
+});
+
+describe('scheduler uses the release anchor', () => {
+  it('schedules the next run at publish + 30 minutes by default', async () => {
+    // FakeClock is 2026-11-16T12:00Z (13:00 CET); publish is 16:00Z.
+    box.configStore.update({ scheduling: { runOnStartup: false } });
+    box.repos.state.set('scheduler.last_run_at', '2026-11-16T09:00:00.000Z');
+    const scheduler = new Scheduler({
+      engine: box.engine,
+      repos: box.repos,
+      clock: box.clock,
+      logger: box.logger,
+      getConfig: () => box.configStore.load(),
+    });
+    await scheduler.start();
+    expect(box.repos.state.get('scheduler.next_run_at')).toBe('2026-11-16T16:30:00.000Z');
+    scheduler.stop();
   });
 });
 

@@ -861,12 +861,13 @@ function Settings({ config, reload }: { config: Config; reload: () => void }): R
           </select>
         </label>
         <label className="field">
-          <span>Daily scan time (games publish Thursdays 17:00 CET)</span>
+          <span>Minutes after the store publishes (11:00 America/New_York)</span>
           <input
-            type="text"
-            defaultValue={draft.scheduling.dailyTime}
-            placeholder="17:30"
-            onBlur={(e) => void save({ scheduling: { ...draft.scheduling, dailyTime: e.target.value } })}
+            type="number"
+            min={0}
+            step={5}
+            defaultValue={draft.scheduling.scanOffsetMinutes}
+            onBlur={(e) => void save({ scheduling: { ...draft.scheduling, scanOffsetMinutes: Number(e.target.value) } })}
           />
         </label>
         <label className="field">
