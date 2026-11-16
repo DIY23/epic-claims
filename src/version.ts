@@ -1,5 +1,5 @@
 /** Version + build metadata. Kept in one place so the updater can trust it. */
-export const APP_VERSION = '1.0.4';
+export const APP_VERSION = '1.0.5';
 export const APP_NAME = 'Epic Claims';
 export const APP_ID = 'com.diy23.epic-claims';
 export const REPO = 'DIY23/epic-claims';
