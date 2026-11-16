@@ -26,7 +26,9 @@ export const DEFAULT_MACOS_TEMPLATES: TemplateSet = {
   },
   APPROVAL_REQUIRED: {
     title: 'Epic Claims',
-    subtitle: 'Claim {game_name}?',
+    // No subtitle: the banner should read as one line (game, studio, deadline)
+    // with the two action buttons underneath.
+    subtitle: '',
     body: '{game_name} by {publisher} · available until {offer_expiry}',
     approveLabel: 'Claim',
     skipLabel: 'Skip',
