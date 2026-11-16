@@ -287,12 +287,29 @@ export function buildProgram(): Command {
   const auth = program.command('auth').description('Epic authentication');
   auth
     .command('login')
-    .description('open a browser window and sign in to Epic Games')
-    .option('--headless', 'attempt a headless sign-in (only works when a session already exists)')
-    .action(async (opts: { headless?: boolean }) => {
+    .description('sign in to Epic (device code by default: approve on your phone)')
+    .option('--browser', 'use a browser window instead of the device code (needs a human at the screen)')
+    .option('--headless', 'with --browser: run the sign-in window hidden')
+    .action(async (opts: { browser?: boolean; headless?: boolean }) => {
       try {
         await withCore(async (core) => {
-          const result = await core.auth.login({ headless: opts.headless === true });
+          const result = await core.auth.login({
+            browser: opts.browser === true,
+            headless: opts.headless === true,
+            onPrompt: (prompt) => {
+              if (json()) {
+                printJson(prompt);
+                return;
+              }
+              out('');
+              out(c.bold('Approve this sign-in on any device (phone is fine):'));
+              out(`  1. open  ${prompt.verificationUriComplete || prompt.verificationUri}`);
+              out(`  2. enter ${c.bold(prompt.userCode)}`);
+              out(`  3. approve, then come back — this command finishes by itself`);
+              out(c.dim(`  code expires ${formatDate(prompt.expiresAt)}`));
+              out('');
+            },
+          });
           if (json()) printJson(result);
           else {
             out(c.green(`signed in${result.accountName ? ` as ${result.accountName}` : ''}`));

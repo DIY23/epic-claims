@@ -18,6 +18,11 @@ export const KILL_SESSION_URL = `https://${OAUTH_HOST}/account/api/oauth/session
 export const LAUNCHER_CLIENT_ID = '34a02cf8f4414e29b15921876da36f9a';
 export const LAUNCHER_CLIENT_SECRET = 'daafbccc737745039dffe53d94fc76cf';
 
+/** Client permitted to use the device-code grant (the launcher client is not). */
+export const DEVICE_CLIENT_ID = '98f7e42c2e3a4f86a74eb43fbb41ed39';
+export const DEVICE_CLIENT_SECRET = '0a2449a2-001a-451e-afec-3e812901c4d7';
+export const DEVICE_AUTHORIZATION_URL = `https://${OAUTH_HOST}/account/api/oauth/deviceAuthorization`;
+
 export const WEB_LOGIN_URL = 'https://www.epicgames.com/id/login';
 export const WEB_REDIRECT_URL = `https://www.epicgames.com/id/api/redirect?clientId=${LAUNCHER_CLIENT_ID}&responseType=code`;
 

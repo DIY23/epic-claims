@@ -8,7 +8,18 @@ import type { Config } from '../config/schema.js';
 import type { Repositories } from '../db/repositories.js';
 import type { AuthStatus } from '../providers/provider.js';
 import { ACCOUNT_EPIC_SESSION, type KeychainBackend } from './keychain.js';
-import { LAUNCHER_CLIENT_ID, LAUNCHER_CLIENT_SECRET, TOKEN_URL, VERIFY_URL, KILL_SESSION_URL, WEB_LOGIN_URL, WEB_REDIRECT_URL } from '../providers/epic/endpoints.js';
+import {
+  LAUNCHER_CLIENT_ID,
+  LAUNCHER_CLIENT_SECRET,
+  DEVICE_CLIENT_ID,
+  DEVICE_CLIENT_SECRET,
+  DEVICE_AUTHORIZATION_URL,
+  TOKEN_URL,
+  VERIFY_URL,
+  KILL_SESSION_URL,
+  WEB_LOGIN_URL,
+  WEB_REDIRECT_URL,
+} from '../providers/epic/endpoints.js';
 
 export interface EpicSession {
   accessToken: string;
@@ -53,6 +64,17 @@ export interface EpicAuthDeps {
 
 function basicAuth(): string {
   return `Basic ${Buffer.from(`${LAUNCHER_CLIENT_ID}:${LAUNCHER_CLIENT_SECRET}`).toString('base64')}`;
+}
+
+function deviceBasicAuth(): string {
+  return `Basic ${Buffer.from(`${DEVICE_CLIENT_ID}:${DEVICE_CLIENT_SECRET}`).toString('base64')}`;
+}
+
+export interface DeviceCodePrompt {
+  verificationUri: string;
+  verificationUriComplete: string;
+  userCode: string;
+  expiresAt: string;
 }
 
 /** Maps Epic's error codes onto the application's error codes. */
@@ -288,20 +310,127 @@ export class EpicAuthManager {
   }
 
   /**
-   * Interactive sign-in. Opens a real browser window: Epic's login, 2FA and
-   * captcha stay in the user's hands. We only read the exchange code the
-   * launcher redirect hands back.
+   * Sign-in.
+   *
+   * Default: Epic's device-code grant — no browser on this machine, works with
+   * Google/Apple SSO, and survives a headless box. The user approves a short
+   * code on any device (phone included).
+   *
+   * `browser: true` keeps the older exchange-code flow, which needs a human at a
+   * real window and is blocked by Google's "browser may not be secure" policy
+   * when the sign-in provider is Google.
    */
-  async login(opts: { headless?: boolean } = {}): Promise<{ ok: boolean; accountName: string | null; detail: string }> {
+  async login(opts: { headless?: boolean; browser?: boolean; onPrompt?: (prompt: DeviceCodePrompt) => void } = {}): Promise<{ ok: boolean; accountName: string | null; detail: string }> {
     const existing = await this.loadSession();
     if (existing) {
       const status = await this.status();
       if (status.authenticated) return { ok: true, accountName: status.accountName, detail: 'already signed in' };
     }
 
-    const code = await this.obtainExchangeCode(opts.headless === true);
-    const session = await this.exchangeCode(code);
+    if (opts.browser) {
+      const code = await this.obtainExchangeCode(opts.headless === true);
+      const session = await this.exchangeCode(code);
+      return { ok: true, accountName: session.displayName || null, detail: `signed in as ${session.displayName || session.accountId}` };
+    }
+
+    const session = await this.deviceLogin(opts.onPrompt);
     return { ok: true, accountName: session.displayName || null, detail: `signed in as ${session.displayName || session.accountId}` };
+  }
+
+  /** client_credentials token for the device-flow client. */
+  private async deviceClientToken(): Promise<string> {
+    const body = new URLSearchParams({ grant_type: 'client_credentials', token_type: 'eg1' }).toString();
+    const res = await (this.deps.fetchImpl ?? fetch)(TOKEN_URL, {
+      method: 'POST',
+      headers: { authorization: deviceBasicAuth(), 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+      signal: AbortSignal.timeout(this.deps.getConfig().epic.requestTimeoutMs),
+    });
+    const parsed = (await res.json().catch(() => ({}))) as TokenResponse;
+    if (!res.ok || !parsed.access_token) throw mapEpicAuthError(parsed, res.status);
+    return parsed.access_token;
+  }
+
+  /**
+   * Device-code sign-in: request a user code, hand it to the caller to display,
+   * then poll until the user approves on their phone/other browser.
+   */
+  async deviceLogin(onPrompt?: (prompt: DeviceCodePrompt) => void): Promise<EpicSession> {
+    const log = this.deps.logger;
+    const timeoutMs = this.deps.getConfig().epic.requestTimeoutMs;
+    const clientToken = await this.deviceClientToken();
+
+    const startRes = await (this.deps.fetchImpl ?? fetch)(`${DEVICE_AUTHORIZATION_URL}?prompt=login`, {
+      method: 'POST',
+      headers: { authorization: `bearer ${clientToken}`, 'content-type': 'application/x-www-form-urlencoded' },
+      body: '',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const start = (await startRes.json().catch(() => ({}))) as {
+      device_code?: string;
+      user_code?: string;
+      verification_uri?: string;
+      verification_uri_complete?: string;
+      expires_in?: number;
+      interval?: number;
+      errorCode?: string;
+      errorMessage?: string;
+    };
+    if (!startRes.ok || !start.device_code || !start.user_code) throw mapEpicAuthError(start as TokenResponse, startRes.status);
+
+    const prompt: DeviceCodePrompt = {
+      verificationUri: start.verification_uri ?? 'https://www.epicgames.com/activate',
+      verificationUriComplete: start.verification_uri_complete ?? start.verification_uri ?? '',
+      userCode: start.user_code,
+      expiresAt: new Date(this.deps.clock.nowMs() + (start.expires_in ?? 600) * 1000).toISOString(),
+    };
+    log.info('device code issued', { userCode: prompt.userCode, expiresAt: prompt.expiresAt });
+    onPrompt?.(prompt);
+
+    const deadline = this.deps.clock.nowMs() + (start.expires_in ?? 600) * 1000;
+    let intervalMs = Math.max(2, start.interval ?? 5) * 1000;
+    let lastError = 'pending';
+
+    while (this.deps.clock.nowMs() < deadline) {
+      await this.deps.clock.sleep(intervalMs);
+      const body = new URLSearchParams({ grant_type: 'device_code', device_code: start.device_code, token_type: 'eg1' }).toString();
+      const res = await (this.deps.fetchImpl ?? fetch)(TOKEN_URL, {
+        method: 'POST',
+        headers: { authorization: deviceBasicAuth(), 'content-type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const parsed = (await res.json().catch(() => ({}))) as TokenResponse & { error?: string };
+      if (res.ok && parsed.access_token) {
+        if (!parsed.refresh_token) throw new AppError('AUTH_FAILED', 'device sign-in returned no refresh token');
+        const now = this.deps.clock.now();
+        const session: EpicSession = {
+          accessToken: parsed.access_token,
+          refreshToken: parsed.refresh_token,
+          tokenType: parsed.token_type ?? 'bearer',
+          accountId: parsed.account_id ?? '',
+          displayName: parsed.display_name ?? '',
+          expiresAt: new Date(now.getTime() + Number(parsed.expires_in ?? 7200) * 1000).toISOString(),
+          refreshExpiresAt: parsed.refresh_expires_at ?? null,
+          scope: parsed.scope ?? null,
+          obtainedAt: now.toISOString(),
+        };
+        await this.saveSession(session);
+        log.info('device sign-in complete', { account: session.displayName });
+        return session;
+      }
+      const code = `${parsed.errorCode ?? ''} ${parsed.error ?? ''}`;
+      if (/slow_down/i.test(code)) {
+        intervalMs = Math.min(intervalMs + 5000, 30_000);
+        continue;
+      }
+      if (/authorization_pending|pending/i.test(code)) continue;
+      if (/expired|invalid_grant|not_found/i.test(code)) {
+        throw new AppError('AUTH_INTERRUPTED', `the device code expired or was rejected (${parsed.errorCode ?? parsed.error ?? res.status})`);
+      }
+      lastError = parsed.errorMessage ?? parsed.errorCode ?? `HTTP ${res.status}`;
+    }
+    throw new AppError('AUTH_INTERRUPTED', `device sign-in was not approved in time (${lastError})`);
   }
 
   /** Drives Playwright to the exchange-code redirect. */

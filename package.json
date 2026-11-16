@@ -1,6 +1,6 @@
 {
   "name": "epic-claims",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "description": "Autonomous Epic Games Store free-game claimer for macOS",
   "license": "MIT",
