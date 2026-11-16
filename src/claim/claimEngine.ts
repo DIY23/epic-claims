@@ -352,7 +352,19 @@ export class ClaimEngine {
     if (!offer) return { status: 'failed', errorCode: 'OFFER_NOT_FOUND', errorMessage: `offer ${offerId} not found`, attemptId: null };
 
     if (repos.claims.hasSucceeded(offerId)) {
-      return { status: 'claimed', verified: true, attemptId: 0 };
+      // Idempotent: never redeem twice. But the offer must still end up describing
+      // reality — a click on a late notification used to return here and leave the
+      // row at 'pending_approval' with no notification of any kind.
+      const owned = repos.ownership.get(offerId)?.owned === true;
+      const settled = owned ? 'already_owned' : 'claimed';
+      if (offer.status !== settled) repos.offers.setStatus(offerId, settled);
+      await this.emit(
+        'CLAIM_SUCCEEDED',
+        { offer: toEventOffer(offer, provider.displayName), verified: true, alreadyOwned: owned },
+        log,
+        `CLAIM_SUCCEEDED:${offerId}`,
+      );
+      return { status: owned ? 'already_owned' : 'claimed', verified: true, attemptId: 0 };
     }
     if (this.inflight.has(offerId)) {
       return { status: 'failed', errorCode: 'CLAIM_IN_PROGRESS', errorMessage: 'a claim for this offer is already running', attemptId: null };
