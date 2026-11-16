@@ -344,11 +344,7 @@ enum NotificationBridge {
 
 // MARK: - entry point
 
-func // Ignore SIGPIPE for the whole process: socket writes to a closed peer must
-// return EPIPE, not kill the app.
-signal(SIGPIPE, SIG_IGN)
-
-parseArguments() {
+func parseArguments() {
     // --status / --authorize are one-shot modes used by the CLI during setup.
     let args = CommandLine.arguments
     var index = 1
@@ -390,6 +386,10 @@ func runOneShot(_ mode: String) {
     }
     exit(finished ? 0 : 2)
 }
+
+// Ignore SIGPIPE for the whole process: a socket write to a peer that has gone
+// must return EPIPE, not kill the helper (that was exit -13 on every click).
+signal(SIGPIPE, SIG_IGN)
 
 parseArguments()
 
