@@ -31,6 +31,8 @@ export interface EpicSession {
   expiresAt: string;
   refreshExpiresAt: string | null;
   scope: string | null;
+  /** Client that minted the refresh token: Epic rejects a refresh from another. */
+  clientId?: string;
   obtainedAt: string;
 }
 
@@ -155,7 +157,7 @@ export class EpicAuthManager {
   }
 
   /** RFC form-encoded token request. */
-  private async tokenRequest(params: Record<string, string>): Promise<EpicSession> {
+  private async tokenRequest(params: Record<string, string>, authHeader: string = basicAuth()): Promise<EpicSession> {
     const body = new URLSearchParams({ ...params, token_type: 'eg1' }).toString();
     const doFetch = this.deps.fetchImpl ?? fetch;
     const controller = new AbortController();
@@ -164,7 +166,7 @@ export class EpicAuthManager {
       const res = await doFetch(TOKEN_URL, {
         method: 'POST',
         headers: {
-          authorization: basicAuth(),
+          authorization: authHeader,
           'content-type': 'application/x-www-form-urlencoded',
           'user-agent': 'UELauncher/11.0.1-14907503+++Portal+Release-Live',
         },
@@ -219,8 +221,30 @@ export class EpicAuthManager {
     this.refreshing = (async () => {
       try {
         if (!session.refreshToken) throw new AppError('AUTH_EXPIRED', 'the stored session has no refresh token — sign in again');
-        const next = await this.tokenRequest({ grant_type: 'refresh_token', refresh_token: session.refreshToken });
-        const merged: EpicSession = { ...session, ...next, refreshToken: next.refreshToken || session.refreshToken };
+        // A refresh token only works with the client that minted it: presenting it
+        // with another client answers `invalid_client`. Try the recorded client
+        // first, then the other known ones, and record whichever worked.
+        const candidates: { clientId: string; header: string }[] = [];
+        if (session.clientId === DEVICE_CLIENT_ID) candidates.push({ clientId: DEVICE_CLIENT_ID, header: deviceBasicAuth() });
+        if (session.clientId === LAUNCHER_CLIENT_ID) candidates.push({ clientId: LAUNCHER_CLIENT_ID, header: basicAuth() });
+        for (const known of [
+          { clientId: LAUNCHER_CLIENT_ID, header: basicAuth() },
+          { clientId: DEVICE_CLIENT_ID, header: deviceBasicAuth() },
+        ]) {
+          if (!candidates.some((c) => c.clientId === known.clientId)) candidates.push(known);
+        }
+        let merged: EpicSession | null = null;
+        let lastError: unknown = null;
+        for (const candidate of candidates) {
+          try {
+            const next = await this.tokenRequest({ grant_type: 'refresh_token', refresh_token: session.refreshToken }, candidate.header);
+            merged = { ...session, ...next, refreshToken: next.refreshToken || session.refreshToken, clientId: candidate.clientId };
+            break;
+          } catch (e) {
+            lastError = e;
+          }
+        }
+        if (!merged) throw lastError ?? new AppError('AUTH_FAILED', 'token refresh failed');
         await this.saveSession(merged);
         this.log().info('epic session refreshed');
         return merged;

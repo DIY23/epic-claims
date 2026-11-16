@@ -220,7 +220,8 @@ describe('templates', () => {
 
   it('ships one template set and no other channel', () => {
     const config = box.configStore.load();
-    expect(config.notifications.templates.macos.GAME_DISCOVERED.title).toContain('{store_name}');
+    expect(config.notifications.templates.macos.GAME_DISCOVERED.title).toBe('Epic Claims');
+    expect(config.notifications.templates.macos.GAME_DISCOVERED.body).toContain('{game_name}');
     expect(Object.keys(config.notifications.adapters)).toEqual(['macos']);
     expect(Object.keys(config.notifications.templates)).toEqual(['macos']);
   });

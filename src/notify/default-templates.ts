@@ -8,16 +8,16 @@ import type { TemplateSet } from './template-vars.js';
  */
 export const DEFAULT_MACOS_TEMPLATES: TemplateSet = {
   GAME_DISCOVERED: {
-    title: 'Free on {store_name}',
-    subtitle: '{game_name}',
-    body: 'Available until {offer_expiry}. {publisher}',
+    title: 'Epic Claims',
+    subtitle: 'Free now on {store_name}',
+    body: '{game_name} by {publisher} · available until {offer_expiry}',
     approveLabel: 'Claim',
     skipLabel: 'Skip',
   },
   CLAIM_SUCCEEDED: {
-    title: 'Claimed: {game_name}',
-    subtitle: '{store_name}',
-    body: 'Ownership verified. {claim_status}',
+    title: 'Epic Claims',
+    subtitle: 'Claimed {game_name}',
+    body: '{game_name} by {publisher} · added to your library',
   },
   CLAIM_FAILED: {
     title: 'Claim failed: {game_name}',
@@ -25,9 +25,9 @@ export const DEFAULT_MACOS_TEMPLATES: TemplateSet = {
     body: '{error_message}',
   },
   APPROVAL_REQUIRED: {
-    title: 'Claim {game_name}?',
-    subtitle: 'Expires {offer_expiry}',
-    body: 'Awaiting your decision. Approval expires {approval_expiry}.',
+    title: 'Epic Claims',
+    subtitle: 'Claim {game_name}?',
+    body: '{game_name} by {publisher} · available until {offer_expiry}',
     approveLabel: 'Claim',
     skipLabel: 'Skip',
   },
