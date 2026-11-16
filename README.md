@@ -29,8 +29,8 @@ epic-claims update          # download, verify, install, restart — data untouc
   SQLite history and Keychain items live elsewhere and are never rewritten by an
   update.
 - **Notification channels are adapters.** The claim engine emits typed events;
-  adapters render and deliver them. Disabling or breaking iMessage cannot affect
-  claiming, and a channel being down is never read as approval.
+  adapters render and deliver them. A channel being down is never read as
+  approval, and a broken channel cannot affect claiming.
 
 ## Schedule — anchored to the publish instant, not to a local clock
 
@@ -101,7 +101,7 @@ src/
   providers/   StoreProvider interface + Epic client, parser, provider
   claim/       deterministic policy, idempotent claim engine
   scheduler/   wall-clock daily scheduler + missed-run recovery
-  notify/      adapter interface, manager, macOS + iMessage adapters, templates
+  notify/      adapter interface, manager, macOS adapter, templates
   api/         Fastify REST + dashboard, single-use approval links
   update/      GitHub releases, checksum + ed25519 verification, atomic install, rollback
   service/     launchd user agent
@@ -153,7 +153,7 @@ The installer verifies the release checksum, extracts into
 `http://127.0.0.1:8781/` once the service is running. The API requires a bearer
 token (`epic-claims config token`); the dashboard asks for it once. Approval
 links (`/approve/<token>`) are single-use, expiring and loopback-only, which is
-what the macOS notification buttons and the iMessage replies use.
+what the macOS notification buttons use.
 
 ## Notifications
 
