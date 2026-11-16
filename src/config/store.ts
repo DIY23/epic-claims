@@ -65,13 +65,23 @@ export class ConfigStore {
     } catch (e) {
       throw new AppError('CONFIG_INVALID', `cannot read ${this.opts.filePath}: ${(e as Error).message}`, { file: this.opts.filePath });
     }
-    const merged = mergeConfig(defaultConfig(), pruneLegacyAdapters(raw));
+    const pruned = pruneLegacyAdapters(raw) as Record<string, unknown>;
+    const merged = mergeConfig(defaultConfig(), pruned);
     const parsed = configSchema.safeParse(merged);
     if (!parsed.success) {
       const issues = describeIssues(parsed.error);
       throw new AppError('CONFIG_INVALID', `config.json is invalid: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`, { issues });
     }
     this.cached = parsed.data;
+    // If the file carried settings for adapters this version no longer ships,
+    // write the cleaned form back so the on-disk file stops advertising them.
+    if (JSON.stringify(pruned) !== JSON.stringify(raw)) {
+      try {
+        this.write(parsed.data);
+      } catch {
+        /* a read-only data dir must not break startup */
+      }
+    }
     return parsed.data;
   }
 

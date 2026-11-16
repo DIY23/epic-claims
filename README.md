@@ -157,23 +157,31 @@ what the macOS notification buttons and the iMessage replies use.
 
 ## Notifications
 
-Two adapters, configured and toggled independently, with separate templates per
-platform:
+Native macOS notifications through the bundled `EpicClaimsNotifier.app`
+(UserNotifications, `LSUIElement`, ad-hoc signed). Approval notifications carry
+working **Claim** / **Skip** buttons that can be answered from the lock screen,
+and every event has its own on/off switch plus an editable template with a live
+preview in the dashboard.
 
-- **macOS** — the bundled `EpicClaimsNotifier.app` (UserNotifications,
-  `LSUIElement`). Approval notifications carry working **Claim** / **Skip**
-  buttons that can be answered from the lock screen. Authorization must be
-  approved once by a human (`System Settings → Notifications → Epic Claims`).
-- **iMessage** — sends through Messages.app (AppleScript) or an optional
-  BlueBubbles bridge; approvals come back as `CLAIM <code>` / `SKIP <code>` from
-  the configured sender, read from `chat.db` (needs Full Disk Access).
+```bash
+epic-claims notifications authorize   # one-time: registers the helper, asks permission
+epic-claims notifications list        # adapter state + the event matrix
+epic-claims notifications test --adapter macos --event APPROVAL_REQUIRED
+```
 
-Every event has a switch per channel, and every template is editable and
-previewable in the dashboard. Variables: `{game_name}`, `{publisher}`,
-`{offer_start}`, `{offer_expiry}`, `{claim_status}`, `{store_name}`,
-`{approval_url}`, `{approval_code}`, `{error_code}`, `{hours_left}` and others
-per event. Templates are validated: unknown variables are rejected, not silently
-dropped.
+The first `authorize` run shows a system prompt; approve it once and the grant
+survives restarts. Until then notifications are queued to Notification Center
+without a banner, and the adapter reports "not determined (never approved)".
+
+Notification content is plain text rendered from per-event templates using
+`{game_name}`, `{publisher}`, `{offer_start}`, `{offer_expiry}`,
+`{claim_status}`, `{store_name}`, `{approval_code}`, `{error_code}`,
+`{hours_left}` and friends. Templates are validated on save: unknown variables
+are rejected rather than silently dropped.
+
+The notification layer is still the adapter pattern — the claim engine emits
+typed events and knows nothing about channels — so adding Telegram or email later
+means one adapter file, no changes anywhere else.
 
 ## Updating
 
@@ -244,9 +252,6 @@ after an update.
 - **Notifications need one approval click** on the machine, once. Until then the
   macOS adapter reports "not determined" and falls back to `osascript` banners
   without action buttons.
-- **iMessage reading needs Full Disk Access** for the process that runs Epic
-  Claims; without it approvals still work through the dashboard, the CLI and the
-  notification buttons.
 - **DLC**: an add-on may require its base game. The engine claims what is free
   and reports the prerequisite failure instead of guessing.
 - **Re-signing the notification helper** can reset the notification permission
