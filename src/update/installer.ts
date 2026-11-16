@@ -27,7 +27,8 @@ const execFileAsync = promisify(execFile);
 
 export interface ServiceControl {
   label: string;
-  restart(): Promise<{ ok: boolean; message: string }>;
+  /** `hard` unloads and reloads the agent so the old process is really gone. */
+  restart(opts?: { hard?: boolean }): Promise<{ ok: boolean; message: string }>;
   isLoaded(): Promise<boolean>;
 }
 
@@ -281,8 +282,9 @@ export class Updater {
       installed = true;
       log.info('new version linked', { version: to, path: target });
 
-      // 9. Restart + health check.
-      const restart = await this.deps.service.restart();
+      // 9. Restart + health check. The hard restart guarantees the process that
+      //    answers the health probe is the new one, not a lingering old instance.
+      const restart = await this.deps.service.restart({ hard: true });
       if (!restart.ok) throw new AppError('UPDATE_HEALTH_FAILED', `service restart failed: ${restart.message}`);
       const health = await this.waitForHealth(cfg.api.port, to);
       if (!health.ok) throw new AppError('UPDATE_HEALTH_FAILED', `updated service did not become healthy: ${health.detail}`);
@@ -305,7 +307,7 @@ export class Updater {
       if (installed && previousTarget) {
         try {
           flipSymlink(paths.currentLink, previousTarget);
-          const restart = await this.deps.service.restart();
+          const restart = await this.deps.service.restart({ hard: true });
           const health = await this.waitForHealth(getConfig().api.port, path.basename(previousTarget));
           rolledBack = restart.ok && health.ok;
           log.warn('rolled back to the previous version', { previous: previousTarget, healthy: rolledBack });
@@ -370,7 +372,7 @@ export class Updater {
     }
   }
 
-  private async waitForHealth(port: number, expectedVersion: string, attempts = 20): Promise<{ ok: boolean; detail: string }> {
+  private async waitForHealth(port: number, expectedVersion: string, attempts = 45): Promise<{ ok: boolean; detail: string }> {
     const probe =
       this.deps.healthProbe ??
       (async (p: number, timeoutMs: number) => {

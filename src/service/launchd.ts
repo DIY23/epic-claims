@@ -196,14 +196,39 @@ export class LaunchdService implements ServiceControl {
     return res.code === 0 ? { ok: true, message: 'stopped' } : { ok: false, message: res.stderr.trim() || `exit ${res.code}` };
   }
 
-  async restart(): Promise<{ ok: boolean; message: string }> {
+  /**
+   * Restarts the agent.
+   *
+   * `kickstart -k` alone is a trap for updates: the new process can start while
+   * the old one is still holding the API port, fail to bind, and be throttled by
+   * KeepAlive — during which the health probe still sees the old version. A hard
+   * restart unloads the job, waits for the process to disappear, then loads it
+   * again, so the next process always sees the freshly flipped binary.
+   */
+  async restart(opts: { hard?: boolean } = {}): Promise<{ ok: boolean; message: string }> {
     if (!fs.existsSync(this.plistPath)) {
       return { ok: false, message: 'service is not installed; the running process keeps the old binary until restarted manually' };
     }
-    if (!(await this.isLoaded())) return this.start();
-    const res = await run('/bin/launchctl', ['kickstart', '-k', `${domain()}/${this.opts.label}`]);
-    if (res.code !== 0) return { ok: false, message: res.stderr.trim() || `exit ${res.code}` };
-    return { ok: true, message: 'restarted' };
+    if (!opts.hard) {
+      if (!(await this.isLoaded())) return this.start();
+      const res = await run('/bin/launchctl', ['kickstart', '-k', `${domain()}/${this.opts.label}`]);
+      if (res.code !== 0) return { ok: false, message: res.stderr.trim() || `exit ${res.code}` };
+      return { ok: true, message: 'restarted' };
+    }
+
+    if (await this.isLoaded()) {
+      await run('/bin/launchctl', ['bootout', `${domain()}/${this.opts.label}`]);
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline && (await this.isLoaded())) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      if (await this.isLoaded()) return { ok: false, message: 'could not stop the running agent' };
+    }
+    // Give the socket a moment to be released by the kernel.
+    await new Promise((r) => setTimeout(r, 500));
+    const boot = await run('/bin/launchctl', ['bootstrap', domain(), this.plistPath]);
+    if (boot.code !== 0) return { ok: false, message: `launchctl bootstrap failed: ${boot.stderr.trim() || `exit ${boot.code}`}` };
+    return { ok: true, message: 'restarted (hard)' };
   }
 
   /** Prints the plist to stdout for review. */
