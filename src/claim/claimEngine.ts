@@ -282,6 +282,23 @@ export class ClaimEngine {
     return this.claimOffer(offer.id, 'scheduler', cycleId, log);
   }
 
+  /**
+   * Creates (or reuses) a real approval for an offer that already exists in the
+   * database, and emits APPROVAL_REQUIRED for it. This is how the interactive path
+   * is exercised for real: the notification carries a live token, and clicking
+   * Claim or Skip on the banner records a genuine decision (and, for Claim, runs a
+   * real attempt whose result is stored like any other).
+   */
+  async requestApprovalFor(offerId: number): Promise<{ approvalId: number; shortCode: string; expiresAt: string }> {
+    const { repos } = this.deps;
+    const offer = repos.offers.get(offerId);
+    if (!offer) throw new AppError('OFFER_NOT_FOUND', `no offer with id ${offerId}`);
+    const log = this.deps.logger.child('approval');
+    const { id } = await this.ensureApproval(offer, log);
+    const row = repos.approvals.pendingForOffer(offer.id);
+    return { approvalId: id, shortCode: row?.shortCode ?? '', expiresAt: row?.expiresAt ?? '' };
+  }
+
   /** Idempotent: an offer has at most one pending approval at a time. */
   private async ensureApproval(offer: StoredOffer, log: Logger): Promise<{ id: number; created: boolean }> {
     const { repos, clock, getConfig, provider } = this.deps;

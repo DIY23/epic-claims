@@ -355,6 +355,28 @@ export function buildProgram(): Command {
   // ---------------------------------------------------------------- approvals
   const approvals = program.command('approvals').description('manage pending approval requests');
   approvals
+    .command('test [offerId]')
+    .description('create a real approval (live Claim/Skip buttons) for an existing offer')
+    .action(async (offerIdArg?: string) => {
+      try {
+        await withCore(async (core) => {
+          const now = core.clock.now().toISOString();
+          const id = offerIdArg ? Number(offerIdArg) : core.repos.offers.list({ activeOnly: true, now, limit: 1 })[0]?.id;
+          if (!id || Number.isNaN(id)) throw new AppError('OFFER_NOT_FOUND', 'no offer to approve — run "epic-claims check" first');
+          const result = await core.engine.requestApprovalFor(id);
+          if (json()) {
+            printJson(result);
+            return;
+          }
+          out(c.green('approval sent') + c.dim(`  id ${result.approvalId} · code ${result.shortCode} · expires ${formatDate(result.expiresAt)}`));
+          out(c.dim('  the notification has live Claim / Skip buttons; a click is recorded as a real decision'));
+        });
+      } catch (e) {
+        exitFor(e);
+      }
+    });
+
+  approvals
     .command('list')
     .description('list pending approvals')
     .action(async () => {
