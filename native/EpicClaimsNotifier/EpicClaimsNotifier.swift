@@ -39,6 +39,10 @@ func jsonLine(_ object: [String: Any]) -> String {
 }
 
 func writeLine(_ fd: Int32, _ object: [String: Any]) {
+    // Writing to a socket whose peer has gone raises SIGPIPE, whose default
+    // action terminates the process. A client that times out or disconnects must
+    // never be able to kill the helper, so SIGPIPE is ignored process-wide (see
+    // main) and a failed write simply closes the descriptor.
     let text = jsonLine(object)
     text.withCString { ptr in
         var written = 0
@@ -340,7 +344,11 @@ enum NotificationBridge {
 
 // MARK: - entry point
 
-func parseArguments() {
+func // Ignore SIGPIPE for the whole process: socket writes to a closed peer must
+// return EPIPE, not kill the app.
+signal(SIGPIPE, SIG_IGN)
+
+parseArguments() {
     // --status / --authorize are one-shot modes used by the CLI during setup.
     let args = CommandLine.arguments
     var index = 1

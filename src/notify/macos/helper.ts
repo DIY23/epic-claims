@@ -153,7 +153,7 @@ export class NotifierClient {
         const timeout = setTimeout(() => {
           socket.destroy();
           reject(new AppError('NOTIFICATION_FAILED', 'notification helper did not reply in time'));
-        }, this.opts.commandTimeoutMs ?? 5000);
+        }, this.opts.commandTimeoutMs ?? 10_000);
         socket.on('data', (chunk) => {
           buffer += chunk.toString('utf8');
           if (!buffer.includes('\n')) return;
