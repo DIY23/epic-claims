@@ -15,7 +15,7 @@ import { NotificationManager } from './notify/manager.js';
 import { MacOSNotificationAdapter } from './notify/adapters/macos.js';
 import { IMessageNotificationAdapter, chatDbPath } from './notify/adapters/imessage.js';
 import { NotifierClient, locateHelper } from './notify/macos/helper.js';
-import { MessagesDbReader, type MessageReader } from './notify/imessage/reader.js';
+import { MessagesDbReader, NullReader, type MessageReader } from './notify/imessage/reader.js';
 import { IMessageCommandService } from './notify/imessage/commands.js';
 import { Scheduler } from './scheduler/scheduler.js';
 import { LaunchdService } from './service/launchd.js';
@@ -206,7 +206,13 @@ export class AppCore {
 
     const engine = new ClaimEngine({ provider, repos, bus, clock, logger: logger.child('engine'), getConfig });
 
-    const reader = opts.messageReader ?? (process.platform === 'darwin' && getConfig().notifications.adapters.imessage.enabled ? new MessagesDbReader(chatDbPath(getConfig())) : new MessagesDbReader(chatDbPath(getConfig())));
+    // Reading Messages.app's database only makes sense for the AppleScript
+    // transport. With Photon there is nothing to read locally, and we must not
+    // touch Messages.app at all.
+    const imessageCfg = getConfig().notifications.adapters.imessage;
+    const reader =
+      opts.messageReader ??
+      (imessageCfg.enabled && imessageCfg.transport === 'applescript' ? new MessagesDbReader(chatDbPath(getConfig())) : new NullReader());
     const commandService = new IMessageCommandService({
       reader,
       repos,
@@ -216,7 +222,9 @@ export class AppCore {
       decide: (input) => engine.handleApprovalDecision({ shortCode: input.shortCode, decision: input.decision, decidedBy: input.decidedBy }),
       getTransport: () => {
         const cfg = getConfig().notifications.adapters.imessage;
-        if (!cfg.enabled || !cfg.recipient) return null;
+        // Inbound reply commands are an AppleScript-transport feature; with
+        // Photon the gateway owns that stream and approvals use the link.
+        if (!cfg.enabled || cfg.transport !== 'applescript' || !cfg.recipient) return null;
         try {
           return imessage.resolveTransport(getConfig());
         } catch {

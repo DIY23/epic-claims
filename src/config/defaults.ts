@@ -80,9 +80,10 @@ export function defaultConfig(): Config {
         imessage: {
           enabled: false,
           recipient: '',
-          transport: 'applescript',
+          transport: 'photon',
           service: 'iMessage',
           bridge: { baseUrl: '', password: '' },
+          photon: { baseUrl: 'http://127.0.0.1:8789', spaceId: '', tokenFile: '~/.hermes/photon-sidecar.json' },
           replyPollSeconds: 60,
           commandSender: '',
           chatDbPath: '~/Library/Messages/chat.db',

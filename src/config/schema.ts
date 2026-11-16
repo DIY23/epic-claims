@@ -129,9 +129,25 @@ const iMessageAdapterSchema = z
     enabled: z.boolean().default(false),
     /** Buddy handle: phone number or Apple ID email. */
     recipient: z.string().default(''),
-    transport: z.enum(['applescript', 'bluebubbles']).default('applescript'),
+    /**
+     * photon      — local Photon iMessage gateway (works without iMessage on the
+     *               Apple account and never launches Messages.app)
+     * applescript — Messages.app on this Mac (needs an iMessage-capable account)
+     * bluebubbles — self-hosted BlueBubbles server
+     */
+    transport: z.enum(['photon', 'applescript', 'bluebubbles']).default('photon'),
     service: z.enum(['iMessage', 'SMS']).default('iMessage'),
     bridge: bridgeSchema.default({ baseUrl: '', password: '' }),
+    photon: z
+      .object({
+        baseUrl: z.string().default('http://127.0.0.1:8789'),
+        /** Chat/space id, e.g. "any;-;+32470000000". */
+        spaceId: z.string().default(''),
+        /** File holding the sidecar token; defaults to this profile's Photon config. */
+        tokenFile: z.string().default('~/.hermes/photon-sidecar.json'),
+      })
+      .strict()
+      .default({ baseUrl: 'http://127.0.0.1:8789', spaceId: '', tokenFile: '~/.hermes/photon-sidecar.json' }),
     /** How often to look for replies when approvals are pending. */
     replyPollSeconds: z.number().int().min(10).max(3600).default(60),
     /** Only accept approval commands from this handle (defaults to recipient). */

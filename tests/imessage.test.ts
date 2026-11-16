@@ -243,16 +243,26 @@ describe('inbound command service', () => {
 });
 
 describe('iMessage adapter', () => {
-  it('is not configured without a recipient', async () => {
+  it('defaults to the Photon gateway and needs a space id, not a phone number', () => {
     const adapter = new IMessageNotificationAdapter();
-    const ctx = { config: box.configStore.load(), logger: box.logger, clock: box.clock, approvalBaseUrl: 'http://127.0.0.1:8781' };
-    expect(adapter.isConfigured(ctx.config)).toBe(false);
-    box.configStore.update({ notifications: { adapters: { imessage: { enabled: true, recipient: '+32470000000' } } } });
+    expect(box.configStore.load().notifications.adapters.imessage.transport).toBe('photon');
+    expect(adapter.isConfigured(box.configStore.load())).toBe(false); // no spaceId yet
+    box.configStore.update({ notifications: { adapters: { imessage: { enabled: true, photon: { baseUrl: 'http://127.0.0.1:8789', spaceId: 'any;-;+32470000000' } } } } });
+    expect(adapter.isConfigured(box.configStore.load())).toBe(true);
+  });
+
+  it('requires a recipient for the AppleScript transport', () => {
+    const adapter = new IMessageNotificationAdapter();
+    box.configStore.update({ notifications: { adapters: { imessage: { enabled: true, transport: 'applescript', recipient: '' } } } });
+    expect(adapter.isConfigured(box.configStore.load())).toBe(false);
+    box.configStore.update({ notifications: { adapters: { imessage: { recipient: '+32470000000' } } } });
     expect(adapter.isConfigured(box.configStore.load())).toBe(true);
   });
 
   it('reports delivery failures without throwing', async () => {
-    box.configStore.update({ notifications: { adapters: { imessage: { enabled: true, recipient: '+32470000000' } } } });
+    box.configStore.update({
+      notifications: { adapters: { imessage: { enabled: true, transport: 'applescript', recipient: '+32470000000' } } },
+    });
     const failing: IMessageTransport = {
       id: 'failing',
       displayName: 'failing',

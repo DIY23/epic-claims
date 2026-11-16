@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
@@ -167,13 +168,124 @@ export class BlueBubblesTransport implements IMessageTransport {
   }
 }
 
-export interface BridgeOptions {
-  baseUrl: string;
-  password: string;
+/**
+ * Photon iMessage gateway transport.
+ *
+ * Speaks to the local Photon sidecar over HTTP — the interface the gateway
+ * already exposes for its own channel: `POST /send {spaceId, text, format}` with
+ * `x-hermes-sidecar-token`. This is the right path on a machine whose Apple
+ * account has no iMessage: nothing touches Messages.app, and no other profile's
+ * traffic is affected (outbound only; inbound approvals use the single-use link).
+ */
+export class PhotonTransport implements IMessageTransport {
+  readonly id = 'photon';
+  readonly displayName = 'Photon iMessage gateway';
+
+  constructor(
+    private readonly opts: { baseUrl: string; spaceId: string; token?: string; tokenFile?: string },
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {}
+
+  private base(): string {
+    return this.opts.baseUrl.replace(/\/$/, '');
+  }
+
+  /** Token precedence: explicit value → env → the sidecar's own config file. */
+  private token(): string | null {
+    if (this.opts.token) return this.opts.token;
+    const env = process.env.EPIC_CLAIMS_PHOTON_TOKEN;
+    if (env) return env;
+    const file = (this.opts.tokenFile ?? '').replace(/^~/, process.env.HOME ?? '~');
+    if (!file) return null;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { token?: string };
+      return parsed.token ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private headers(): Record<string, string> {
+    const token = this.token();
+    return {
+      'content-type': 'application/json',
+      ...(token ? { 'x-hermes-sidecar-token': token } : {}),
+    };
+  }
+
+  async send(_recipient: string, text: string, timeoutMs: number): Promise<SendResult> {
+    if (!this.opts.baseUrl) return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'no Photon gateway baseUrl configured' };
+    if (!this.opts.spaceId) return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'no Photon spaceId (chat) configured' };
+    if (!this.token()) return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'no Photon sidecar token available' };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await this.fetchImpl(`${this.base()}/send`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ spaceId: this.opts.spaceId, text, format: 'text' }),
+        signal: controller.signal,
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; messageId?: string };
+      if (!res.ok || body.ok === false) {
+        return {
+          ok: false,
+          errorCode: res.status === 401 ? 'ADAPTER_NOT_CONFIGURED' : 'NOTIFICATION_FAILED',
+          errorMessage: body.error ?? `gateway returned HTTP ${res.status}`,
+        };
+      }
+      return { ok: true, detail: `sent via Photon${body.messageId ? ` (${body.messageId})` : ''}` };
+    } catch (e) {
+      const msg = errorMessage(e);
+      return { ok: false, errorCode: /abort/i.test(msg) ? 'TIMEOUT' : 'NOTIFICATION_FAILED', errorMessage: msg };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async readiness(): Promise<ReadinessResult> {
+    if (!this.opts.baseUrl) return { ready: false, detail: 'no Photon gateway baseUrl configured' };
+    if (!this.token()) return { ready: false, detail: 'no Photon sidecar token (set photon.tokenFile or EPIC_CLAIMS_PHOTON_TOKEN)' };
+    try {
+      const res = await this.fetchImpl(`${this.base()}/healthz`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: '{}',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.status === 401) return { ready: false, detail: 'Photon gateway rejected the sidecar token' };
+      return res.ok ? { ready: true, detail: `gateway healthy (HTTP ${res.status})` } : { ready: false, detail: `gateway returned HTTP ${res.status}` };
+    } catch (e) {
+      return { ready: false, detail: `Photon gateway unreachable at ${this.opts.baseUrl}: ${errorMessage(e)}` };
+    }
+  }
 }
 
-export function createTransport(id: 'applescript' | 'bluebubbles', bridge: BridgeOptions, service: 'iMessage' | 'SMS' = 'iMessage'): IMessageTransport {
-  if (id === 'bluebubbles') return new BlueBubblesTransport({ baseUrl: bridge.baseUrl, password: bridge.password });
+export interface TransportOptions {
+  /** AppleScript / BlueBubbles recipient. */
+  recipient?: string;
+  service?: 'iMessage' | 'SMS';
+  bridgePassword?: string;
+  baseUrl?: string;
+  spaceId?: string;
+  token?: string;
+  tokenFile?: string;
+}
+
+/**
+ * Photon is the default: it is the only path that works when the Mac's Apple
+ * account has no iMessage, and it never launches Messages.app.
+ */
+export function createTransport(id: 'photon' | 'applescript' | 'bluebubbles', opts: TransportOptions): IMessageTransport {
+  if (id === 'photon') {
+    return new PhotonTransport({
+      baseUrl: opts.baseUrl ?? 'http://127.0.0.1:8789',
+      spaceId: opts.spaceId ?? '',
+      ...(opts.token ? { token: opts.token } : {}),
+      ...(opts.tokenFile ? { tokenFile: opts.tokenFile } : {}),
+    });
+  }
+  if (id === 'bluebubbles') return new BlueBubblesTransport({ baseUrl: opts.baseUrl ?? '', password: opts.bridgePassword ?? '' });
   if (process.platform !== 'darwin') throw new AppError('UNSUPPORTED_PLATFORM', 'the AppleScript iMessage transport requires macOS');
-  return new AppleScriptTransport(service);
+  return new AppleScriptTransport(opts.service ?? 'iMessage');
 }

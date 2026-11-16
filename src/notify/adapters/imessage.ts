@@ -38,9 +38,16 @@ export class IMessageNotificationAdapter implements NotificationAdapter {
   resolveTransport(config: Config): IMessageTransport {
     if (this.opts.transport) return this.opts.transport;
     const cfg = config.notifications.adapters.imessage;
-    const key = `${cfg.transport}|${cfg.service}|${cfg.bridge.baseUrl}|${cfg.bridge.password ? 'pw' : ''}`;
+    const key = `${cfg.transport}|${cfg.service}|${cfg.photon.baseUrl}|${cfg.photon.spaceId}|${cfg.bridge.baseUrl}`;
     if (this.cachedTransport && this.cachedKey === key) return this.cachedTransport;
-    this.cachedTransport = createTransport(cfg.transport, { baseUrl: cfg.bridge.baseUrl, password: cfg.bridge.password }, cfg.service);
+    this.cachedTransport = createTransport(cfg.transport, {
+      service: cfg.service,
+      recipient: cfg.recipient,
+      bridgePassword: cfg.bridge.password,
+      baseUrl: cfg.transport === 'photon' ? cfg.photon.baseUrl : cfg.bridge.baseUrl,
+      spaceId: cfg.photon.spaceId,
+      tokenFile: cfg.photon.tokenFile,
+    });
     this.cachedKey = key;
     return this.cachedTransport;
   }
@@ -58,9 +65,9 @@ export class IMessageNotificationAdapter implements NotificationAdapter {
   isConfigured(config: Config): boolean {
     const cfg = config.notifications.adapters.imessage;
     if (!cfg.enabled) return false;
-    if (!cfg.recipient.trim()) return false;
-    if (cfg.transport === 'bluebubbles') return cfg.bridge.baseUrl.trim().length > 0;
-    return true;
+    if (cfg.transport === 'photon') return cfg.photon.baseUrl.trim().length > 0 && cfg.photon.spaceId.trim().length > 0;
+    if (cfg.transport === 'bluebubbles') return cfg.bridge.baseUrl.trim().length > 0 && cfg.recipient.trim().length > 0;
+    return cfg.recipient.trim().length > 0;
   }
 
   render(event: AppEvent, template: TemplateFields, ctx: AdapterContext): RenderedNotification {
@@ -86,8 +93,8 @@ export class IMessageNotificationAdapter implements NotificationAdapter {
 
   async deliver(message: RenderedNotification, event: AppEvent, ctx: AdapterContext): Promise<DeliveryResult> {
     const cfg = ctx.config.notifications.adapters.imessage;
-    if (!cfg.recipient.trim()) {
-      return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'no iMessage recipient configured', attempts: 1 };
+    if (!this.isConfigured(ctx.config)) {
+      return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'iMessage channel is not configured', attempts: 1 };
     }
     try {
       const transport = this.transport(ctx.config);

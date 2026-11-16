@@ -335,6 +335,18 @@ export class EpicAuthManager {
       await page.goto(`${WEB_LOGIN_URL}?redirectUrl=${encodeURIComponent(WEB_REDIRECT_URL)}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
       while (Date.now() < deadline && !exchangeCode) {
+        // SSO (Google/Apple) opens a popup; the redirect can land on any page in
+        // the context, so scan all of them rather than only the first one.
+        for (const candidate of context.pages()) {
+          const candidateUrl = candidate.url();
+          const m = /[?&]code=([^&]+)/.exec(candidateUrl);
+          if (m?.[1]) {
+            exchangeCode = decodeURIComponent(m[1]);
+            break;
+          }
+        }
+        if (exchangeCode) break;
+
         // 1. The redirect may land directly on a URL carrying ?code=
         const url = page.url();
         const urlMatch = /[?&]code=([^&]+)/.exec(url);

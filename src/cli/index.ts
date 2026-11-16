@@ -431,6 +431,57 @@ export function buildProgram(): Command {
       }
     });
   notify
+    .command('authorize')
+    .description('register the macOS notification helper and request permission (approve the prompt)')
+    .option('--timeout <seconds>', 'how long to wait for the prompt', '120')
+    .action(async (opts: { timeout: string }) => {
+      try {
+        await withCore(async (core) => {
+          const adapter = core.notifications.getAdapter('macos') as unknown as {
+            authorize?: (config: import('../config/schema.js').Config, timeoutMs?: number) => Promise<{ ok: boolean; detail: string; authorizationStatus: number }>;
+          };
+          if (!adapter?.authorize) {
+            process.stderr.write('the macOS adapter is not available\n');
+            process.exit(EXIT_USAGE);
+          }
+          const res = await adapter.authorize(core.configStore.load(), (Number(opts.timeout) || 120) * 1000);
+          if (json()) printJson(res);
+          else out(res.ok ? c.green(`macOS notifications ready (${res.detail})`) : c.yellow(`not authorized yet: ${res.detail} — approve the system prompt, then re-run`));
+          if (!res.ok) process.exit(EXIT_ERROR);
+        });
+      } catch (e) {
+        exitFor(e);
+      }
+    });
+
+  notify
+    .command('photon <spaceId>')
+    .description('route iMessage notifications through the local Photon gateway and enable the channel')
+    .option('--base-url <url>', 'gateway base URL', 'http://127.0.0.1:8789')
+    .option('--test', 'send a test message immediately')
+    .action(async (spaceId: string, opts: { baseUrl: string; test?: boolean }) => {
+      try {
+        await withCore(async (core) => {
+          core.configStore.update({
+            notifications: {
+              adapters: {
+                imessage: { enabled: true, transport: 'photon', photon: { baseUrl: opts.baseUrl, spaceId } },
+              },
+            },
+          });
+          out(c.green(`iMessage channel now uses the Photon gateway (${opts.baseUrl}, space ${spaceId})`));
+          if (opts.test) {
+            const report = await core.notifications.test(buildExampleEvent('APPROVAL_REQUIRED', new Date().toISOString()), 'imessage');
+            out(report.status === 'delivered' ? c.green('test message sent') : c.red(`test failed: ${report.errorCode} ${report.errorMessage ?? ''}`));
+            if (report.status !== 'delivered') process.exit(EXIT_ERROR);
+          }
+        });
+      } catch (e) {
+        exitFor(e);
+      }
+    });
+
+  notify
     .command('show')
     .description('print the templates for one adapter')
     .requiredOption('--adapter <adapter>', 'macos|imessage')
