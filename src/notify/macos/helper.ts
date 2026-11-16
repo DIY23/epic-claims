@@ -53,6 +53,21 @@ export interface HelperAction {
  * directory (native/EpicClaimsNotifier.app), so an update replaces it together
  * with the JavaScript and the app can never run mismatched halves.
  */
+/** PIDs of helper processes already bound to this socket path. */
+export function helperPids(socketPath: string): number[] {
+  try {
+    const result = spawnSync('ps', ['-Ao', 'pid,command'], { encoding: 'utf8' });
+    if (result.status !== 0 || !result.stdout) return [];
+    return result.stdout
+      .split('\n')
+      .filter((line: string) => line.includes('EpicClaimsNotifier') && line.includes(`--socket ${socketPath}`))
+      .map((line: string) => Number.parseInt(line.trim().split(/\s+/)[0] ?? '', 10))
+      .filter((pid: number) => Number.isInteger(pid) && pid > 0);
+  } catch {
+    return [];
+  }
+}
+
 export function locateHelper(candidates: Array<string | null | undefined>, explicitPath?: string | null): HelperLocation {
   const paths: string[] = [];
   if (explicitPath) paths.push(explicitPath);
@@ -187,6 +202,28 @@ export class NotifierClient {
     } catch {
       /* not running yet */
     }
+    // Only one helper may own the socket: a second instance unlinks and rebinds it,
+    // which silently steals deliveries from the running service (three helpers were
+    // seen alive at once). If a process is already bound to this socket, wait for
+    // it instead of starting another.
+    const running = helperPids(this.paths.socket);
+    if (running.length > 0) {
+      for (let i = 0; i < 25; i += 1) {
+        try {
+          const socket = await this.connect();
+          socket.destroy();
+          return true;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+      }
+      // Bound but unresponsive: replace the stale instances.
+      for (const pid of running) {
+        try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+
     fs.mkdirSync(path.dirname(this.paths.socket), { recursive: true, mode: 0o700 });
     // Executing the binary inside the bundle is what actually works: `open -g -n -a
     // <bundle> --args …` reported success but the process never picked the arguments
