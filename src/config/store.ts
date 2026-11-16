@@ -65,6 +65,9 @@ export class ConfigStore {
     } catch (e) {
       throw new AppError('CONFIG_INVALID', `cannot read ${this.opts.filePath}: ${(e as Error).message}`, { file: this.opts.filePath });
     }
+    // Snapshot before pruning: pruneLegacyAdapters mutates in place, so comparing
+    // afterwards would always look unchanged and the cleanup would never persist.
+    const originalJson = JSON.stringify(raw);
     const pruned = pruneLegacyAdapters(raw) as Record<string, unknown>;
     const merged = mergeConfig(defaultConfig(), pruned);
     const parsed = configSchema.safeParse(merged);
@@ -75,7 +78,7 @@ export class ConfigStore {
     this.cached = parsed.data;
     // If the file carried settings for adapters this version no longer ships,
     // write the cleaned form back so the on-disk file stops advertising them.
-    if (JSON.stringify(pruned) !== JSON.stringify(raw)) {
+    if (JSON.stringify(pruned) !== originalJson) {
       try {
         this.write(parsed.data);
       } catch {
