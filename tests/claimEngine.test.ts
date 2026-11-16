@@ -33,6 +33,15 @@ describe('automatic claiming', () => {
 
     expect(eventsOfType(box.events, 'CLAIM_SUCCEEDED')).toHaveLength(1);
     expect(eventsOfType(box.events, 'GAME_DISCOVERED')).toHaveLength(1);
+
+    // A late Claim click must not leave the offer describing an earlier state:
+    // it settles the row and re-emits once (deduplicated), and never redeems twice.
+    box.repos.offers.setStatus(offers[0]!.id, 'pending_approval');
+    const again = await box.engine.claimOffer(offers[0]!.id, 'approval:notification');
+    // ownership was verified at claim time, so the settled status is already_owned
+    expect(again.status).toBe('already_owned');
+    expect(box.repos.offers.get(offers[0]!.id)?.status).toBe('already_owned');
+    expect(box.provider.claimCalls).toEqual(['free-1']);
   });
 
   it('never claims twice, even across cycles and restarts', async () => {
