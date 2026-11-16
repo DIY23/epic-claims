@@ -102,10 +102,9 @@ export const DEFAULT_IMESSAGE_TEMPLATES: TemplateSet = {
     body: '⚠️ Claim failed: {game_name} ({error_code}). {error_message}',
   },
   APPROVAL_REQUIRED: {
-    // iMessage may only carry Epic Store links, never a localhost/DDNS URL.
-    // The poll above the text is the one-tap path; this line says what the code
-    // is for and where the decision can always be taken.
-    body: '❓ Claim {game_name}? Free until {offer_expiry}.\nCode {approval_code} — decide in Epic Claims on the Mac (or tap the poll).\nStore: {offer_url}',
+    // Sent as three parts: this line, the store page as a link card, then the
+    // Claim/Skip poll. No local URL ever appears here.
+    body: '🎮 Free on {store_name}: {game_name} ({game_kind}) by {publisher}. Available until {offer_expiry}.',
     approveLabel: 'Claim',
     skipLabel: 'Skip',
   },

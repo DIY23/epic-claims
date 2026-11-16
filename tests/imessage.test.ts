@@ -113,6 +113,11 @@ class FakeTransport implements IMessageTransport {
     this.polls.push({ title, options });
     return { ok: true };
   }
+  richLinks: string[] = [];
+  async sendRichLink(url: string): Promise<SendResult> {
+    this.richLinks.push(url);
+    return { ok: true };
+  }
   async readiness(): Promise<{ ready: boolean; detail: string }> {
     return { ready: true, detail: 'fake' };
   }
@@ -257,16 +262,22 @@ describe('approval prompts as polls', () => {
     const ctx = { config: box.configStore.load(), logger: box.logger, clock: box.clock, approvalBaseUrl: 'http://127.0.0.1:8781' };
     const event = makeEvent(
       'APPROVAL_REQUIRED',
-      { offer: { id: 1, storeOfferId: 'o', title: 'Knightica', publisher: 'P', kind: 'game', url: null, imageUrl: null, startAt: null, endAt: null, storeName: 'Epic' }, approvalId: 1, shortCode: 'abcd1234', token: 'tok', expiresAt: '2026-11-19T00:00:00.000Z' },
+      { offer: { id: 1, storeOfferId: 'o', title: 'Knightica', publisher: 'Goblinz Studio SAS', kind: 'game', url: 'https://store.epicgames.com/en-US/p/test-game', imageUrl: null, startAt: null, endAt: '2026-11-19T16:00:00.000Z', storeName: 'Epic Games Store' }, approvalId: 1, shortCode: 'abcd1234', token: 'tok', expiresAt: '2026-11-19T00:00:00.000Z' },
       box.clock.now().toISOString(),
     );
-    const result = await adapter.deliver(adapter.render(event, { body: '{game_name}', approveLabel: 'Claim', skipLabel: 'Skip' }, ctx), event, ctx);
+    const template = ctx.config.notifications.templates.imessage.APPROVAL_REQUIRED;
+    const result = await adapter.deliver(adapter.render(event, template, ctx), event, ctx);
 
     expect(result.ok).toBe(true);
+    // 1) the message, 2) the store page as a link card, 3) the poll
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0]).toContain('🎮');
+    expect(transport.sent[0]).toContain('Knightica');
+    expect(transport.sent[0]).not.toContain('127.0.0.1');
+    expect(transport.richLinks).toEqual(['https://store.epicgames.com/en-US/p/test-game']);
     expect(transport.polls).toHaveLength(1);
     expect(transport.polls[0]?.title).toContain('Knightica');
     expect(transport.polls[0]?.options).toEqual(['Claim', 'Skip']);
-    expect(transport.sent[0]).toContain('CLAIM abcd1234');
   });
 
   it('falls back to a plain message when polls are disabled', async () => {

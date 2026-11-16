@@ -30,6 +30,8 @@ export interface IMessageTransport {
   readiness(): Promise<ReadinessResult>;
   /** Native poll (iMessage), used for approval prompts where supported. */
   sendPoll?(title: string, options: string[], timeoutMs: number): Promise<SendResult>;
+  /** Rich link card (thumbnail preview) for a public URL. */
+  sendRichLink?(url: string, timeoutMs: number): Promise<SendResult>;
 }
 
 /**
@@ -263,6 +265,32 @@ export class PhotonTransport implements IMessageTransport {
         return { ok: false, errorCode: 'NOTIFICATION_FAILED', errorMessage: body.error ?? `gateway returned HTTP ${res.status}` };
       }
       return { ok: true, detail: `poll sent${body.messageId ? ` (${body.messageId})` : ''}` };
+    } catch (e) {
+      const msg = errorMessage(e);
+      return { ok: false, errorCode: /abort/i.test(msg) ? 'TIMEOUT' : 'NOTIFICATION_FAILED', errorMessage: msg };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Sends a URL as an iMessage link card (thumbnail + title + domain). */
+  async sendRichLink(url: string, timeoutMs: number): Promise<SendResult> {
+    if (!this.opts.spaceId) return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'no Photon spaceId configured' };
+    if (!/^https?:\/\//i.test(url)) return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'rich link needs an http(s) URL' };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await this.fetchImpl(`${this.base()}/send-richlink`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ spaceId: this.opts.spaceId, url }),
+        signal: controller.signal,
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; messageId?: string };
+      if (!res.ok || body.ok === false) {
+        return { ok: false, errorCode: 'NOTIFICATION_FAILED', errorMessage: body.error ?? `gateway returned HTTP ${res.status}` };
+      }
+      return { ok: true, detail: `link card sent${body.messageId ? ` (${body.messageId})` : ''}` };
     } catch (e) {
       const msg = errorMessage(e);
       return { ok: false, errorCode: /abort/i.test(msg) ? 'TIMEOUT' : 'NOTIFICATION_FAILED', errorMessage: msg };

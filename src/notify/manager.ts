@@ -317,7 +317,8 @@ export function renderForAdapter(adapterId: string, event: AppEvent, template: T
   if (typeof p.approvalId === 'number') data.approvalId = p.approvalId;
   if (typeof p.shortCode === 'string') data.approvalCode = p.shortCode;
   if (typeof p.token === 'string') data.approvalUrl = `${approvalBaseUrl}/approve/${p.token}`;
-  const offer = p.offer as { id?: number; title?: string } | undefined;
+  const offer = p.offer as { id?: number; title?: string; url?: string | null } | undefined;
+  if (offer?.url) data.offerUrl = offer.url;
   if (offer?.id !== undefined) data.offerId = offer.id;
   if (offer?.title) data.offerTitle = offer.title;
   data.adapter = adapterId;
