@@ -23,6 +23,9 @@ swiftc -O -swift-version 5 \
   "$here/EpicClaimsNotifier/EpicClaimsNotifier.swift"
 
 cp "$here/EpicClaimsNotifier/Info.plist" "$app/Contents/Info.plist"
+# Notification banners draw the sending bundle's icon; without an .icns the alert
+# shows a generic placeholder.
+cp "$here/EpicClaimsNotifier/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 
 echo "==> signing (ad-hoc, stable identifier)"
 codesign --force --deep --sign - --identifier com.diy23.epic-claims.notifier "$app"
