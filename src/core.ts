@@ -237,11 +237,16 @@ export class AppCore {
       },
     });
 
+    // When installed, launchd must start the app through the `current` symlink.
+    // Pinning the plist to versions/<x>/dist/… would make every update a no-op:
+    // the symlink flips, but the agent keeps launching the old version.
+    const installed = runtimePaths.distDir.startsWith(paths.versionsDir);
+    const cliForService = installed ? path.join(paths.currentLink, 'dist', 'cli', 'index.js') : cliEntry;
     const service = new LaunchdService({
       label: config.service.label,
       paths,
       nodePath: process.execPath,
-      cliPath: cliEntry,
+      cliPath: cliForService,
       keepAlive: config.service.keepAlive,
       startAtLogin: config.service.startAtLogin,
     });

@@ -30,6 +30,8 @@ export interface ServiceControl {
   /** `hard` unloads and reloads the agent so the old process is really gone. */
   restart(opts?: { hard?: boolean }): Promise<{ ok: boolean; message: string }>;
   isLoaded(): Promise<boolean>;
+  /** Rewrites the plist if its arguments are stale (e.g. pinned to an old version). */
+  repairPlist?(): Promise<boolean>;
 }
 
 export interface UpdaterDeps {
@@ -282,8 +284,13 @@ export class Updater {
       installed = true;
       log.info('new version linked', { version: to, path: target });
 
-      // 9. Restart + health check. The hard restart guarantees the process that
-      //    answers the health probe is the new one, not a lingering old instance.
+      // 9. Restart + health check. Repair a plist that still points at a
+      //    versioned path, then a hard restart so the process answering the
+      //    probe is genuinely the new one.
+      if (this.deps.service.repairPlist) {
+        const repaired = await this.deps.service.repairPlist();
+        if (repaired) log.info('service plist updated to launch through the current symlink');
+      }
       const restart = await this.deps.service.restart({ hard: true });
       if (!restart.ok) throw new AppError('UPDATE_HEALTH_FAILED', `service restart failed: ${restart.message}`);
       const health = await this.waitForHealth(cfg.api.port, to);

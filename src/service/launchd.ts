@@ -143,6 +143,28 @@ export class LaunchdService implements ServiceControl {
   }
 
   /** Writes the plist and loads the agent. Idempotent. */
+  /** True when the on-disk plist does not match the desired arguments. */
+  needsRewrite(): boolean {
+    try {
+      const current = fs.readFileSync(this.plistPath, 'utf8');
+      return current !== renderPlist(this.opts);
+    } catch {
+      return true;
+    }
+  }
+
+  /** Rewrites the plist when its rendered form differs from what is on disk. */
+  async repairPlist(): Promise<boolean> {
+    if (!fs.existsSync(this.plistPath)) return false;
+    if (!this.needsRewrite()) return false;
+    try {
+      fs.writeFileSync(this.plistPath, renderPlist(this.opts), { mode: 0o644 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async install(): Promise<{ ok: boolean; message: string }> {
     try {
       fs.mkdirSync(path.dirname(this.plistPath), { recursive: true });
