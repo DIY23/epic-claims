@@ -104,8 +104,13 @@ class FakeTransport implements IMessageTransport {
   readonly id = 'fake';
   readonly displayName = 'fake';
   sent: string[] = [];
+  polls: Array<{ title: string; options: string[] }> = [];
   async send(_recipient: string, text: string): Promise<SendResult> {
     this.sent.push(text);
+    return { ok: true };
+  }
+  async sendPoll(title: string, options: string[]): Promise<SendResult> {
+    this.polls.push({ title, options });
     return { ok: true };
   }
   async readiness(): Promise<{ ready: boolean; detail: string }> {
@@ -239,6 +244,46 @@ describe('inbound command service', () => {
     });
     const result = await service.poll();
     expect(result.commands).toBe(0);
+  });
+});
+
+describe('approval prompts as polls', () => {
+  it('sends a Claim/Skip poll and then the code + link', async () => {
+    box.configStore.update({
+      notifications: { adapters: { imessage: { enabled: true, transport: 'photon', photon: { spaceId: 'any;-;+32470000000', usePoll: true } } } },
+    });
+    const transport = new FakeTransport();
+    const adapter = new IMessageNotificationAdapter({ transport });
+    const ctx = { config: box.configStore.load(), logger: box.logger, clock: box.clock, approvalBaseUrl: 'http://127.0.0.1:8781' };
+    const event = makeEvent(
+      'APPROVAL_REQUIRED',
+      { offer: { id: 1, storeOfferId: 'o', title: 'Knightica', publisher: 'P', kind: 'game', url: null, imageUrl: null, startAt: null, endAt: null, storeName: 'Epic' }, approvalId: 1, shortCode: 'abcd1234', token: 'tok', expiresAt: '2026-11-19T00:00:00.000Z' },
+      box.clock.now().toISOString(),
+    );
+    const result = await adapter.deliver(adapter.render(event, { body: '{game_name}', approveLabel: 'Claim', skipLabel: 'Skip' }, ctx), event, ctx);
+
+    expect(result.ok).toBe(true);
+    expect(transport.polls).toHaveLength(1);
+    expect(transport.polls[0]?.title).toContain('Knightica');
+    expect(transport.polls[0]?.options).toEqual(['Claim', 'Skip']);
+    expect(transport.sent[0]).toContain('CLAIM abcd1234');
+  });
+
+  it('falls back to a plain message when polls are disabled', async () => {
+    box.configStore.update({
+      notifications: { adapters: { imessage: { enabled: true, transport: 'photon', photon: { spaceId: 'any;-;+32470000000', usePoll: false } } } },
+    });
+    const transport = new FakeTransport();
+    const adapter = new IMessageNotificationAdapter({ transport });
+    const ctx = { config: box.configStore.load(), logger: box.logger, clock: box.clock, approvalBaseUrl: 'http://127.0.0.1:8781' };
+    const event = makeEvent(
+      'APPROVAL_REQUIRED',
+      { offer: { id: 1, storeOfferId: 'o', title: 'G', publisher: '', kind: 'game', url: null, imageUrl: null, startAt: null, endAt: null, storeName: 'Epic' }, approvalId: 1, shortCode: 'abcd1234', token: 'tok', expiresAt: '2026-11-19T00:00:00.000Z' },
+      box.clock.now().toISOString(),
+    );
+    await adapter.deliver(adapter.render(event, { body: '{game_name}' }, ctx), event, ctx);
+    expect(transport.polls).toHaveLength(0);
+    expect(transport.sent).toHaveLength(1);
   });
 });
 

@@ -28,6 +28,8 @@ export interface IMessageTransport {
   readonly displayName: string;
   send(recipient: string, text: string, timeoutMs: number): Promise<SendResult>;
   readiness(): Promise<ReadinessResult>;
+  /** Native poll (iMessage), used for approval prompts where supported. */
+  sendPoll?(title: string, options: string[], timeoutMs: number): Promise<SendResult>;
 }
 
 /**
@@ -235,6 +237,32 @@ export class PhotonTransport implements IMessageTransport {
         };
       }
       return { ok: true, detail: `sent via Photon${body.messageId ? ` (${body.messageId})` : ''}` };
+    } catch (e) {
+      const msg = errorMessage(e);
+      return { ok: false, errorCode: /abort/i.test(msg) ? 'TIMEOUT' : 'NOTIFICATION_FAILED', errorMessage: msg };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Native iMessage poll: a one-tap Claim/Skip prompt. */
+  async sendPoll(title: string, options: string[], timeoutMs: number): Promise<SendResult> {
+    if (!this.opts.spaceId) return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'no Photon spaceId configured' };
+    if (options.length < 2) return { ok: false, errorCode: 'ADAPTER_NOT_CONFIGURED', errorMessage: 'a poll needs at least two options' };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await this.fetchImpl(`${this.base()}/send-poll`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ spaceId: this.opts.spaceId, title, options }),
+        signal: controller.signal,
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; messageId?: string };
+      if (!res.ok || body.ok === false) {
+        return { ok: false, errorCode: 'NOTIFICATION_FAILED', errorMessage: body.error ?? `gateway returned HTTP ${res.status}` };
+      }
+      return { ok: true, detail: `poll sent${body.messageId ? ` (${body.messageId})` : ''}` };
     } catch (e) {
       const msg = errorMessage(e);
       return { ok: false, errorCode: /abort/i.test(msg) ? 'TIMEOUT' : 'NOTIFICATION_FAILED', errorMessage: msg };

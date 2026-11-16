@@ -145,6 +145,8 @@ const iMessageAdapterSchema = z
         spaceId: z.string().default(''),
         /** File holding the sidecar token; defaults to this profile's Photon config. */
         tokenFile: z.string().default('~/.hermes/photon-sidecar.json'),
+        /** Render approval prompts as a native iMessage poll (Claim / Skip). */
+        usePoll: z.boolean().default(true),
       })
       .strict()
       .default({ baseUrl: 'http://127.0.0.1:8789', spaceId: '', tokenFile: '~/.hermes/photon-sidecar.json' }),

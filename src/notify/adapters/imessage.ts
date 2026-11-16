@@ -98,7 +98,28 @@ export class IMessageNotificationAdapter implements NotificationAdapter {
     }
     try {
       const transport = this.transport(ctx.config);
-      const res = await transport.send(cfg.recipient, message.body, cfg.sendTimeoutSeconds * 1000);
+      const timeoutMs = cfg.sendTimeoutSeconds * 1000;
+
+      // Approval prompts are rendered as a native poll when the transport can do
+      // it (Photon). The vote itself streams to the gateway's inbound consumer,
+      // so the message that follows carries the single-use link and the code —
+      // the decision must be attributable, not inferred from a tap.
+      if (event.type === 'APPROVAL_REQUIRED' && cfg.photon.usePoll && typeof transport.sendPoll === 'function') {
+        const title = message.subject ?? message.body.split('\n')[0] ?? 'Claim this game?';
+        const options = message.actions.length >= 2 ? message.actions.map((a) => a.title) : ['Claim', 'Skip'];
+        const poll = await transport.sendPoll(title, options, timeoutMs);
+        if (poll.ok) {
+          const followUp = await transport.send(cfg.recipient, message.body, timeoutMs);
+          return {
+            ok: true,
+            attempts: 1,
+            detail: `poll sent${followUp.ok ? ' + approval link' : ' (link message failed)'}`,
+          };
+        }
+        // Fall through to a plain message if the poll endpoint is unavailable.
+      }
+
+      const res = await transport.send(cfg.recipient, message.body, timeoutMs);
       if (res.ok) return { ok: true, attempts: 1, detail: res.detail ?? 'sent' };
       return { ok: false, errorCode: res.errorCode ?? 'NOTIFICATION_FAILED', errorMessage: res.errorMessage ?? 'send failed', attempts: 1 };
     } catch (e) {
