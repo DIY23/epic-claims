@@ -15,6 +15,9 @@ epic-claims status          # what is happening right now
 epic-claims update          # download, verify, install, restart — data untouched
 ```
 
+> **Status: paused at v2.3.3 (16/11/2026).** What works, what does not, and how to
+> resume are in [docs/STATUS.md](docs/STATUS.md).
+
 ## Why it is built the way it is
 
 - **Ownership is verified, never assumed.** A claim is only "done" when Epic's
